@@ -58,25 +58,43 @@ export default function FileDropzone({
     const name = file.name.toLowerCase();
     const type = file.type.toLowerCase();
 
-    if (acceptedMimeTypes.includes('pdf')) {
-      return (
-        type === 'application/pdf' ||
-        type === 'application/x-pdf' ||
-        name.endsWith('.pdf')
-      );
+    const acceptsPdf = acceptedMimeTypes.includes('pdf');
+    const acceptsImage =
+      acceptedMimeTypes.includes('image') ||
+      acceptedMimeTypes.includes('jpeg') ||
+      acceptedMimeTypes.includes('jpg') ||
+      acceptedMimeTypes.includes('png') ||
+      acceptedMimeTypes.includes('webp');
+
+    const isPdf =
+      type === 'application/pdf' ||
+      type === 'application/x-pdf' ||
+      name.endsWith('.pdf');
+
+    const isImage =
+      type.startsWith('image/') ||
+      name.endsWith('.jpg') ||
+      name.endsWith('.jpeg') ||
+      name.endsWith('.png') ||
+      name.endsWith('.webp') ||
+      name.endsWith('.gif') ||
+      name.endsWith('.bmp');
+
+    if (acceptsPdf && isPdf) return true;
+    if (acceptsImage && isImage) return true;
+
+    // Check specific custom MIME tokens or file extensions
+    const tokens = acceptedMimeTypes.split(',').map((s) => s.trim().toLowerCase());
+    for (const t of tokens) {
+      if (!t) continue;
+      if (type === t) return true;
+      if (t.startsWith('.') && name.endsWith(t)) return true;
     }
 
-    if (acceptedMimeTypes.includes('image')) {
-      return (
-        type.startsWith('image/') ||
-        name.endsWith('.jpg') ||
-        name.endsWith('.jpeg') ||
-        name.endsWith('.png') ||
-        name.endsWith('.webp')
-      );
-    }
+    if (acceptsPdf && !acceptsImage && !isPdf) return false;
+    if (acceptsImage && !acceptsPdf && !isImage) return false;
 
-    return true;
+    return false;
   };
 
   const processFiles = (selectedFiles: File[]) => {
@@ -87,9 +105,19 @@ export default function FileDropzone({
     const valid = selectedFiles.filter(validateFile);
 
     if (valid.length === 0) {
-      if (acceptedMimeTypes.includes('pdf')) {
+      const acceptsPdf = acceptedMimeTypes.includes('pdf');
+      const acceptsImage =
+        acceptedMimeTypes.includes('image') ||
+        acceptedMimeTypes.includes('jpeg') ||
+        acceptedMimeTypes.includes('jpg') ||
+        acceptedMimeTypes.includes('png') ||
+        acceptedMimeTypes.includes('webp');
+
+      if (acceptsPdf && acceptsImage) {
+        setError('Please select a valid PDF document or image file (PDF, JPG, PNG, WebP).');
+      } else if (acceptsPdf) {
         setError('Please select valid PDF documents (.pdf).');
-      } else if (acceptedMimeTypes.includes('image')) {
+      } else if (acceptsImage) {
         setError('Please select valid images (JPG, PNG, WebP).');
       } else {
         setError('Selected file type is not supported.');

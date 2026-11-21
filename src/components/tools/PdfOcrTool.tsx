@@ -37,11 +37,14 @@ export default function PdfOcrTool() {
       const bytes = new Uint8Array(buffer);
       const images: string[] = [];
 
-      if (file.type.startsWith('image/')) {
+      const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name);
+
+      if (isImage) {
         // Direct image
         const reader = new FileReader();
-        const dataUrl = await new Promise<string>((resolve) => {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
           reader.onload = (e) => resolve(e.target?.result as string);
+          reader.onerror = () => reject(new Error('Failed to read image file.'));
           reader.readAsDataURL(file);
         });
         images.push(dataUrl);
@@ -50,8 +53,12 @@ export default function PdfOcrTool() {
         const doc = await loadPdfDocument(bytes);
         const total = Math.min(doc.numPages, 10); // Process up to 10 pages locally for memory safety
         for (let i = 1; i <= total; i++) {
-          const thumb = await renderPageThumbnail(doc, i, 800); // 800px width for good OCR resolution
-          images.push(thumb);
+          try {
+            const thumb = await renderPageThumbnail(doc, i, 800); // 800px width for good OCR resolution
+            if (thumb) images.push(thumb);
+          } catch (renderErr) {
+            console.warn(`Could not render page ${i} for OCR:`, renderErr);
+          }
         }
       }
 

@@ -49,13 +49,15 @@ export default function ExtractPagesTool() {
   const loadThumbnails = async (bytes: Uint8Array, pages: number) => {
     try {
       const doc = await loadPdfDocument(bytes);
-      const thumbs: string[] = [];
       const maxToRender = Math.min(pages, 48); // Render up to 48 thumbs for memory safety
       for (let i = 1; i <= maxToRender; i++) {
-        const thumb = await renderPageThumbnail(doc, i, 160);
-        thumbs.push(thumb);
+        try {
+          const thumb = await renderPageThumbnail(doc, i, 160);
+          setThumbnails((prev) => [...prev, thumb]);
+        } catch {
+          setThumbnails((prev) => [...prev, '']);
+        }
       }
-      setThumbnails(thumbs);
     } catch (err) {
       console.warn('Could not render thumbnails:', err);
     } finally {

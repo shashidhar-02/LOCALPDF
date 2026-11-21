@@ -133,6 +133,20 @@ export default function RedactPdfTool() {
     setCurrentBox(null);
   };
 
+  // Global window listeners for drag completion outside canvas
+  useEffect(() => {
+    if (!isDrawing) return;
+    const onWindowMouseUp = () => {
+      handleMouseUp();
+    };
+    window.addEventListener('mouseup', onWindowMouseUp);
+    window.addEventListener('touchend', onWindowMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', onWindowMouseUp);
+      window.removeEventListener('touchend', onWindowMouseUp);
+    };
+  }, [isDrawing, currentBox, startPoint, currentPage, redactionLabel]);
+
   const handleDeleteRedaction = (id: string) => {
     setRedactions((prev) => prev.filter((r) => r.id !== id));
     if (selectedId === id) setSelectedId(null);
@@ -320,10 +334,25 @@ export default function RedactPdfTool() {
 
             {/* Interactive Canvas */}
             <div
-              className="relative border border-slate-300 shadow-md bg-white rounded cursor-crosshair select-none"
+              className="relative border border-slate-300 shadow-md bg-white rounded cursor-crosshair select-none touch-none"
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
+              onTouchStart={(e) => {
+                if (e.touches.length === 1) {
+                  const t = e.touches[0];
+                  handleMouseDown({ clientX: t.clientX, clientY: t.clientY } as any);
+                }
+              }}
+              onTouchMove={(e) => {
+                if (e.touches.length === 1) {
+                  const t = e.touches[0];
+                  handleMouseMove({ clientX: t.clientX, clientY: t.clientY } as any);
+                }
+              }}
+              onTouchEnd={() => {
+                handleMouseUp();
+              }}
             >
               <canvas ref={canvasRef} className="block pointer-events-none" />
 
@@ -331,6 +360,8 @@ export default function RedactPdfTool() {
               {currentPageRedactions.map((r) => (
                 <div
                   key={r.id}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
                   style={{
                     left: `${r.x}px`,
                     top: `${r.y}px`,

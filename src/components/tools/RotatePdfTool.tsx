@@ -37,9 +37,13 @@ export default function RotatePdfTool() {
       setTotalPages(pages);
 
       // Render thumbnail of page 1
-      const doc = await loadPdfDocument(bytes);
-      const thumb = await renderPageThumbnail(doc, 1, 240);
-      setPreviewThumb(thumb);
+      try {
+        const doc = await loadPdfDocument(bytes);
+        const thumb = await renderPageThumbnail(doc, 1, 240);
+        setPreviewThumb(thumb);
+      } catch (thumbErr) {
+        console.warn('Could not render rotate preview thumb:', thumbErr);
+      }
     } catch (err: any) {
       setError('Could not read PDF. File may be corrupt or encrypted.');
     }

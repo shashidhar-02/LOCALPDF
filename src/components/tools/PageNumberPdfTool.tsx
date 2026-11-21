@@ -49,13 +49,17 @@ export default function PageNumberPdfTool() {
       const buffer = await selected.arrayBuffer();
       const bytes = new Uint8Array(buffer);
       const count = await getPDFPageCount(bytes);
-      const loaded = await loadPdfDocument(bytes);
-
       setFile(selected);
       setFileBytes(bytes);
       setTotalPages(count);
-      setPdfDoc(loaded);
       setCurrentPage(1);
+
+      try {
+        const loaded = await loadPdfDocument(bytes);
+        setPdfDoc(loaded);
+      } catch (previewErr) {
+        console.warn('PDF.js preview could not be loaded:', previewErr);
+      }
     } catch {
       setError('Could not read PDF. File may be encrypted or corrupted.');
     }

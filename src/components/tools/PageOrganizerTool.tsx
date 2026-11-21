@@ -40,24 +40,42 @@ export default function PageOrganizerTool() {
       setFileBytes(bytes);
       setIsLoadingThumbs(true);
 
-      const doc = await loadPdfDocument(bytes);
       const items: PageCardItem[] = [];
-
       for (let i = 1; i <= totalPages; i++) {
-        const thumb = await renderPageThumbnail(doc, i, 160);
         items.push({
           id: `page-${i}-${Date.now()}`,
           originalIndex: i - 1,
           displayPageNum: i,
           rotation: 0,
-          thumbnail: thumb,
+          thumbnail: '',
         });
       }
-
       setPages(items);
+
+      // Asynchronously stream in thumbnails without blocking UI interactions
+      (async () => {
+        try {
+          const doc = await loadPdfDocument(bytes);
+          for (let i = 1; i <= totalPages; i++) {
+            try {
+              const thumb = await renderPageThumbnail(doc, i, 160);
+              setPages((prev) =>
+                prev.map((p) =>
+                  p.originalIndex === i - 1 ? { ...p, thumbnail: thumb } : p
+                )
+              );
+            } catch {
+              // Ignore single page thumb error
+            }
+          }
+        } catch (docErr) {
+          console.warn('Could not load PDF for thumbnail generation:', docErr);
+        } finally {
+          setIsLoadingThumbs(false);
+        }
+      })();
     } catch (err: any) {
       setError('Could not open PDF file. It may be corrupt or encrypted.');
-    } finally {
       setIsLoadingThumbs(false);
     }
   };

@@ -124,6 +124,7 @@ export default function EditPdfTool() {
   const pageCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isInteracting, setIsInteracting] = useState(false);
   const [interactionStart, setInteractionStart] = useState<{ x: number; y: number } | null>(null);
+  const [interactionCurrent, setInteractionCurrent] = useState<{ x: number; y: number } | null>(null);
   const [currentFreehandPoints, setCurrentFreehandPoints] = useState<{ x: number; y: number }[]>([]);
 
   // Processing & Download state
@@ -361,6 +362,7 @@ export default function EditPdfTool() {
     if (['whiteout', 'redaction', 'rectangle', 'circle', 'line', 'arrow', 'highlight'].includes(activeTool)) {
       setIsInteracting(true);
       setInteractionStart(pt);
+      setInteractionCurrent(pt);
       return;
     }
   };
@@ -371,6 +373,8 @@ export default function EditPdfTool() {
 
     if (activeTool === 'freehand') {
       setCurrentFreehandPoints((prev) => [...prev, pt]);
+    } else {
+      setInteractionCurrent(pt);
     }
   };
 
@@ -486,7 +490,27 @@ export default function EditPdfTool() {
     }
 
     setInteractionStart(null);
+    setInteractionCurrent(null);
   };
+
+  // Global window listeners for drag completion outside canvas
+  useEffect(() => {
+    if (!isInteracting) return;
+    const onWindowMouseUp = (e: MouseEvent) => {
+      handleCanvasMouseUp(e as any);
+    };
+    const onWindowTouchEnd = () => {
+      setIsInteracting(false);
+      setInteractionStart(null);
+      setInteractionCurrent(null);
+    };
+    window.addEventListener('mouseup', onWindowMouseUp);
+    window.addEventListener('touchend', onWindowTouchEnd);
+    return () => {
+      window.removeEventListener('mouseup', onWindowMouseUp);
+      window.removeEventListener('touchend', onWindowTouchEnd);
+    };
+  }, [isInteracting, interactionStart, interactionCurrent, activeTool, currentPage, edits]);
 
   // Add Stamp
   const handleAddStamp = (stampText: string, color: string, bg: string) => {
@@ -1259,13 +1283,60 @@ export default function EditPdfTool() {
 
               {/* PDF Canvas Container */}
               <div
-                className="relative shadow-2xl bg-white border border-slate-300 cursor-crosshair"
+                className="relative shadow-2xl bg-white border border-slate-300 cursor-crosshair touch-none"
                 onMouseDown={handleCanvasMouseDown}
                 onMouseMove={handleCanvasMouseMove}
                 onMouseUp={handleCanvasMouseUp}
+                onTouchStart={(e) => {
+                  if (e.touches.length === 1) {
+                    const t = e.touches[0];
+                    handleCanvasMouseDown({ clientX: t.clientX, clientY: t.clientY } as any);
+                  }
+                }}
+                onTouchMove={(e) => {
+                  if (e.touches.length === 1) {
+                    const t = e.touches[0];
+                    handleCanvasMouseMove({ clientX: t.clientX, clientY: t.clientY } as any);
+                  }
+                }}
+                onTouchEnd={(e) => {
+                  handleCanvasMouseUp(e as any);
+                }}
               >
                 {/* PDF.js Page Render Canvas */}
                 <canvas ref={pageCanvasRef} className="block pointer-events-none" />
+
+                {/* Live Drag Preview for box/shape/highlight/redaction */}
+                {isInteracting && interactionStart && interactionCurrent && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: `${Math.min(interactionStart.x, interactionCurrent.x) * scale}px`,
+                      top: `${Math.min(interactionStart.y, interactionCurrent.y) * scale}px`,
+                      width: `${Math.max(8, Math.abs(interactionCurrent.x - interactionStart.x)) * scale}px`,
+                      height: `${Math.max(6, Math.abs(interactionCurrent.y - interactionStart.y)) * scale}px`,
+                      backgroundColor:
+                        activeTool === 'whiteout'
+                          ? whiteoutBgColor
+                          : activeTool === 'redaction'
+                          ? '#000000'
+                          : activeTool === 'highlight'
+                          ? '#fef08a'
+                          : 'transparent',
+                      borderColor:
+                        activeTool === 'redaction'
+                          ? '#000000'
+                          : activeTool === 'whiteout'
+                          ? '#cbd5e1'
+                          : strokeColor,
+                      borderWidth: '2px',
+                      borderStyle: activeTool === 'whiteout' ? 'dashed' : 'solid',
+                      opacity: activeTool === 'highlight' ? 0.35 : 0.85,
+                      pointerEvents: 'none',
+                      zIndex: 25,
+                    }}
+                  />
+                )}
 
                 {/* Adobe Pro Feature: Detected Text Hover Blocks */}
                 {showDetectedOverlay && (

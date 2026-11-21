@@ -49,13 +49,17 @@ export default function SignPdfTool() {
       const buffer = await selected.arrayBuffer();
       const bytes = new Uint8Array(buffer);
       const pages = await getPDFPageCount(bytes);
-      const loadedDoc = await loadPdfDocument(bytes);
-
       setFile(selected);
       setFileBytes(bytes);
       setTotalPages(pages);
-      setPdfDoc(loadedDoc);
       setCurrentPage(1);
+
+      try {
+        const loadedDoc = await loadPdfDocument(bytes);
+        setPdfDoc(loadedDoc);
+      } catch (previewErr) {
+        console.warn('PDF.js preview could not be loaded:', previewErr);
+      }
     } catch (err: any) {
       setError('Could not read PDF. File may be corrupt or encrypted.');
     }
