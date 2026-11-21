@@ -9,6 +9,7 @@
 import { DetectedPdfTextItem, StandardFontFamily } from './types';
 
 let pdfjsLibInstance: any = null;
+const activeRenderTasks = new WeakMap<HTMLCanvasElement, any>();
 
 export async function getPdfJs() {
   if (typeof window === 'undefined') {
@@ -17,9 +18,9 @@ export async function getPdfJs() {
 
   if (!pdfjsLibInstance) {
     const pdfjs = await import('pdfjs-dist');
-    // Set worker source securely
+    // Set worker source securely: prefer local static self-hosted worker, fallback to cdnjs
     if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-      pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs`;
+      pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
     }
     pdfjsLibInstance = pdfjs;
   }
@@ -34,14 +35,29 @@ export async function loadPdfDocument(fileBytes: Uint8Array) {
   const pdfjs = await getPdfJs();
   // Copy to slice to prevent memory detach issues
   const data = fileBytes.slice(0);
-  const loadingTask = pdfjs.getDocument({
-    data,
-    isEvalSupported: false, // Security: Disable PDF JavaScript eval
-    disableRange: true,
-    disableStream: true,
-  });
+  try {
+    const loadingTask = pdfjs.getDocument({
+      data,
+      isEvalSupported: false, // Security: Disable PDF JavaScript eval
+      disableRange: true,
+      disableStream: true,
+    });
 
-  return await loadingTask.promise;
+    return await loadingTask.promise;
+  } catch (err) {
+    // If worker initialization failed, try fallback
+    console.warn('Primary PDF.js worker load encountered an issue, retrying...', err);
+    if (!pdfjs.GlobalWorkerOptions.workerSrc || pdfjs.GlobalWorkerOptions.workerSrc === '/pdf.worker.min.mjs') {
+      pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
+    }
+    const fallbackTask = pdfjs.getDocument({
+      data: fileBytes.slice(0),
+      isEvalSupported: false,
+      disableRange: true,
+      disableStream: true,
+    });
+    return await fallbackTask.promise;
+  }
 }
 
 /**
@@ -53,6 +69,17 @@ export async function renderPdfPageToCanvas(
   canvas: HTMLCanvasElement,
   scale: number = 1.0
 ): Promise<{ width: number; height: number }> {
+  // Cancel any in-flight render task on this canvas to prevent pdf.js concurrency errors
+  const existingTask = activeRenderTasks.get(canvas);
+  if (existingTask) {
+    try {
+      existingTask.cancel();
+    } catch {
+      // Ignored
+    }
+    activeRenderTasks.delete(canvas);
+  }
+
   const page = await pdfDoc.getPage(pageNumber);
   const viewport = page.getViewport({ scale });
 
@@ -74,8 +101,27 @@ export async function renderPdfPageToCanvas(
     viewport: viewport,
   };
 
-  await page.render(renderContext).promise;
-  context.restore();
+  const currentTask = page.render(renderContext);
+  activeRenderTasks.set(canvas, currentTask);
+
+  try {
+    await currentTask.promise;
+  } catch (err: any) {
+    if (err?.name === 'RenderingCancelledException') {
+      // Normal when switching pages or zoom levels rapidly
+      return { width: viewport.width, height: viewport.height };
+    }
+    throw err;
+  } finally {
+    if (activeRenderTasks.get(canvas) === currentTask) {
+      activeRenderTasks.delete(canvas);
+    }
+    try {
+      context.restore();
+    } catch {
+      // Ignored
+    }
+  }
 
   return { width: viewport.width, height: viewport.height };
 }

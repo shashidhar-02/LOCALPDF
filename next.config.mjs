@@ -42,8 +42,8 @@ const nextConfig = {
           },
           {
             key: 'Content-Security-Policy',
-            // Allow scripts from self and unpkg/jsdelivr for workers if needed, style unsafe-inline for tailwind/lucide, connect-self and blob
-            value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' blob: data: https://cdn.jsdelivr.net https://unpkg.com; worker-src 'self' blob:; object-src 'none';",
+            // Allow scripts and workers from self, blob, and cdnjs/jsdelivr/unpkg, style unsafe-inline for tailwind/lucide
+            value: "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' blob: data: https://cdn.jsdelivr.net https://unpkg.com https://cdnjs.cloudflare.com; worker-src 'self' blob: https://cdnjs.cloudflare.com; object-src 'none';",
           },
         ],
       },
