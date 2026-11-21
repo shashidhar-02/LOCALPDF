@@ -1,0 +1,21 @@
+{
+  "name": "LocalPDF - 100% Browser PDF Tools",
+  "short_name": "LocalPDF",
+  "description": "Free, private, instant PDF tools that run entirely in your browser. Your files never leave your device.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0284c7",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
