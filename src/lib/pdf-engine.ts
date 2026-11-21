@@ -5,7 +5,9 @@ import {
   SplitOptions,
   VisualSignature,
   VisualAnnotation,
-  AcroFormFieldInfo
+  AcroFormFieldInfo,
+  PdfEditItem,
+  StandardFontFamily
 } from './types';
 import { parsePageRange } from './page-ranges';
 
@@ -566,6 +568,270 @@ export async function fillAcroFields(
       }
     } catch {
       // field might not exist or be different type
+    }
+  }
+
+  return await doc.save();
+}
+
+function parseHexColor(hexStr?: string): { r: number; g: number; b: number } {
+  if (!hexStr) return { r: 0, g: 0, b: 0 };
+  const cleaned = hexStr.replace('#', '').trim();
+  if (cleaned.length === 3) {
+    const r = parseInt(cleaned[0] + cleaned[0], 16) / 255 || 0;
+    const g = parseInt(cleaned[1] + cleaned[1], 16) / 255 || 0;
+    const b = parseInt(cleaned[2] + cleaned[2], 16) / 255 || 0;
+    return { r, g, b };
+  }
+  const r = parseInt(cleaned.substring(0, 2), 16) / 255 || 0;
+  const g = parseInt(cleaned.substring(2, 4), 16) / 255 || 0;
+  const b = parseInt(cleaned.substring(4, 6), 16) / 255 || 0;
+  return { r, g, b };
+}
+
+/**
+ * High-performance PDF editor engine:
+ * Injects text with exact font families, whiteout redaction, shapes, stamps,
+ * images, highlights, and freehand markup onto any page.
+ */
+export async function applyPdfEdits(
+  fileData: Uint8Array,
+  edits: PdfEditItem[]
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(fileData, { ignoreEncryption: true });
+  const pages = doc.getPages();
+
+  // Cache embedded fonts for fast execution
+  const fontCache = new Map<string, any>();
+
+  const getOrEmbedFont = async (
+    family: StandardFontFamily = 'Helvetica',
+    bold: boolean = false,
+    italic: boolean = false
+  ) => {
+    let fontName: StandardFonts = StandardFonts.Helvetica;
+
+    if (family === 'Times-Roman') {
+      if (bold && italic) fontName = StandardFonts.TimesRomanBoldItalic;
+      else if (bold) fontName = StandardFonts.TimesRomanBold;
+      else if (italic) fontName = StandardFonts.TimesRomanItalic;
+      else fontName = StandardFonts.TimesRoman;
+    } else if (family === 'Courier') {
+      if (bold && italic) fontName = StandardFonts.CourierBoldOblique;
+      else if (bold) fontName = StandardFonts.CourierBold;
+      else if (italic) fontName = StandardFonts.CourierOblique;
+      else fontName = StandardFonts.Courier;
+    } else {
+      // Helvetica default
+      if (bold && italic) fontName = StandardFonts.HelveticaBoldOblique;
+      else if (bold) fontName = StandardFonts.HelveticaBold;
+      else if (italic) fontName = StandardFonts.HelveticaOblique;
+      else fontName = StandardFonts.Helvetica;
+    }
+
+    const key = fontName;
+    if (!fontCache.has(key)) {
+      const embedded = await doc.embedFont(fontName);
+      fontCache.set(key, embedded);
+    }
+    return fontCache.get(key);
+  };
+
+  for (const item of edits) {
+    const pageIndex = item.pageNumber - 1;
+    if (pageIndex < 0 || pageIndex >= pages.length) continue;
+    const page = pages[pageIndex];
+    const pageHeight = page.getHeight();
+
+    // Coordinates: Web/Canvas uses top-left origin, PDF uses bottom-left origin
+    const pdfY = pageHeight - item.y - item.height;
+
+    switch (item.type) {
+      case 'whiteout': {
+        // Redaction / whiteout block to erase or replace existing text
+        const bgRgb = parseHexColor(item.backgroundColor || '#ffffff');
+        page.drawRectangle({
+          x: item.x,
+          y: Math.max(0, pdfY),
+          width: Math.max(1, item.width),
+          height: Math.max(1, item.height),
+          color: rgb(bgRgb.r, bgRgb.g, bgRgb.b),
+          opacity: item.opacity ?? 1.0,
+        });
+
+        // If replacement text is provided, draw it right on top of the whiteout block
+        if (item.text && item.text.trim().length > 0) {
+          const font = await getOrEmbedFont(item.fontFamily, item.bold, item.italic);
+          const fontSize = item.fontSize || 12;
+          const textRgb = parseHexColor(item.textColor || '#000000');
+          const textPdfY = pdfY + (item.height - fontSize) / 2;
+
+          page.drawText(item.text, {
+            x: item.x + 2,
+            y: Math.max(0, textPdfY),
+            size: fontSize,
+            font,
+            color: rgb(textRgb.r, textRgb.g, textRgb.b),
+          });
+        }
+        break;
+      }
+
+      case 'text': {
+        if (!item.text) break;
+        const font = await getOrEmbedFont(item.fontFamily, item.bold, item.italic);
+        const fontSize = item.fontSize || 14;
+        const textRgb = parseHexColor(item.textColor || '#0f172a');
+
+        // Optional background badge
+        if (item.backgroundColor) {
+          const bgRgb = parseHexColor(item.backgroundColor);
+          page.drawRectangle({
+            x: item.x - 2,
+            y: Math.max(0, pdfY),
+            width: item.width + 4,
+            height: item.height,
+            color: rgb(bgRgb.r, bgRgb.g, bgRgb.b),
+            opacity: item.opacity ?? 1.0,
+          });
+        }
+
+        // Draw individual lines for multi-line text
+        const lines = item.text.split('\n');
+        const lineHeight = fontSize * 1.25;
+        lines.forEach((line, idx) => {
+          const lineY = pageHeight - item.y - fontSize - (idx * lineHeight);
+          page.drawText(line, {
+            x: item.x,
+            y: Math.max(0, lineY),
+            size: fontSize,
+            font,
+            color: rgb(textRgb.r, textRgb.g, textRgb.b),
+            opacity: item.opacity ?? 1.0,
+          });
+        });
+        break;
+      }
+
+      case 'rectangle': {
+        const strokeRgb = parseHexColor(item.strokeColor || '#2563eb');
+        const strokeW = item.strokeWidth ?? 2;
+        const fillColor = item.fillColor ? parseHexColor(item.fillColor) : undefined;
+
+        page.drawRectangle({
+          x: item.x,
+          y: Math.max(0, pdfY),
+          width: Math.max(1, item.width),
+          height: Math.max(1, item.height),
+          borderColor: rgb(strokeRgb.r, strokeRgb.g, strokeRgb.b),
+          borderWidth: strokeW,
+          color: fillColor ? rgb(fillColor.r, fillColor.g, fillColor.b) : undefined,
+          opacity: item.opacity ?? 1.0,
+        });
+        break;
+      }
+
+      case 'circle': {
+        const strokeRgb = parseHexColor(item.strokeColor || '#2563eb');
+        const strokeW = item.strokeWidth ?? 2;
+        const fillColor = item.fillColor ? parseHexColor(item.fillColor) : undefined;
+        const radiusX = Math.max(1, item.width / 2);
+        const radiusY = Math.max(1, item.height / 2);
+
+        page.drawEllipse({
+          x: item.x + radiusX,
+          y: Math.max(0, pdfY + radiusY),
+          xScale: radiusX,
+          yScale: radiusY,
+          borderColor: rgb(strokeRgb.r, strokeRgb.g, strokeRgb.b),
+          borderWidth: strokeW,
+          color: fillColor ? rgb(fillColor.r, fillColor.g, fillColor.b) : undefined,
+          opacity: item.opacity ?? 1.0,
+        });
+        break;
+      }
+
+      case 'line':
+      case 'arrow': {
+        const strokeRgb = parseHexColor(item.strokeColor || '#2563eb');
+        const strokeW = item.strokeWidth ?? 2;
+        const startX = item.x;
+        const startY = pageHeight - item.y;
+        const endX = item.x + item.width;
+        const endY = pageHeight - (item.y + item.height);
+
+        page.drawLine({
+          start: { x: startX, y: startY },
+          end: { x: endX, y: endY },
+          thickness: strokeW,
+          color: rgb(strokeRgb.r, strokeRgb.g, strokeRgb.b),
+          opacity: item.opacity ?? 1.0,
+        });
+        break;
+      }
+
+      case 'highlight': {
+        const highRgb = parseHexColor(item.backgroundColor || item.strokeColor || '#facc15');
+        page.drawRectangle({
+          x: item.x,
+          y: Math.max(0, pdfY),
+          width: Math.max(1, item.width),
+          height: Math.max(1, item.height),
+          color: rgb(highRgb.r, highRgb.g, highRgb.b),
+          opacity: item.opacity ?? 0.35,
+        });
+        break;
+      }
+
+      case 'image':
+      case 'stamp': {
+        if (!item.dataUrl) break;
+        try {
+          const base64Data = item.dataUrl.split(',')[1] || item.dataUrl;
+          const binaryString = atob(base64Data);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+
+          let embeddedImage: any = null;
+          if (item.dataUrl.includes('image/jpeg') || item.dataUrl.includes('image/jpg')) {
+            embeddedImage = await doc.embedJpg(bytes);
+          } else {
+            embeddedImage = await doc.embedPng(bytes);
+          }
+
+          page.drawImage(embeddedImage, {
+            x: item.x,
+            y: Math.max(0, pdfY),
+            width: item.width,
+            height: item.height,
+            opacity: item.opacity ?? 1.0,
+          });
+        } catch (imgErr) {
+          console.warn('Failed to embed edit image:', imgErr);
+        }
+        break;
+      }
+
+      case 'freehand': {
+        if (!item.points || item.points.length < 2) break;
+        const strokeRgb = parseHexColor(item.strokeColor || '#0f172a');
+        const strokeW = item.strokeWidth ?? 2;
+
+        for (let i = 0; i < item.points.length - 1; i++) {
+          const p1 = item.points[i];
+          const p2 = item.points[i + 1];
+          page.drawLine({
+            start: { x: p1.x, y: pageHeight - p1.y },
+            end: { x: p2.x, y: pageHeight - p2.y },
+            thickness: strokeW,
+            color: rgb(strokeRgb.r, strokeRgb.g, strokeRgb.b),
+            opacity: item.opacity ?? 1.0,
+          });
+        }
+        break;
+      }
     }
   }
 

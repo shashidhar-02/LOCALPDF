@@ -2,6 +2,38 @@ import { ToolMeta } from './types';
 
 export const TOOLS: ToolMeta[] = [
   {
+    id: 'edit-pdf',
+    slug: 'edit-pdf',
+    title: 'Edit PDF Online — Free & 100% Private Browser Editor',
+    shortTitle: 'Edit PDF',
+    tagline: 'Add new text, erase or replace existing text with matched fonts, insert images, shapes, and stamps.',
+    description: 'Full-featured browser-based PDF editor. Type text with custom fonts (Helvetica, Times Roman, Courier), whiteout existing text to replace it seamlessly, draw shapes, and add enterprise stamps without uploading your files.',
+    category: 'edit',
+    icon: 'PenToolIcon',
+    badge: 'New & Popular',
+    acceptedMimeTypes: 'application/pdf',
+    acceptLabel: 'Choose a PDF to edit',
+    multiple: false,
+    howItWorks: [
+      { step: 1, title: 'Upload Document', desc: 'Drag and drop your PDF. The file is loaded securely into local browser memory with zero network uploads.' },
+      { step: 2, title: 'Make Your Edits', desc: 'Add new text boxes, use the Whiteout tool to erase/replace original text with matching fonts, or insert shapes and stamps.' },
+      { step: 3, title: 'Export & Download', desc: 'Click "Download PDF". LocalPDF embeds all vector shapes, fonts, and text directly using client-side WebAssembly.' }
+    ],
+    faqs: [
+      { q: 'Can I replace or erase existing text in my PDF?', a: 'Yes! Use the "Erase / Replace" tool to draw a whiteout box over any existing word or paragraph, and type your new replacement text directly over it with matching font and size.' },
+      { q: 'Which fonts are supported?', a: 'Standard high-fidelity PDF fonts are supported including Helvetica (Arial equivalent), Times Roman (Serif), and Courier (Monospace), with full Bold and Italic formatting.' },
+      { q: 'Is my document private?', a: '100% private. LocalPDF never uploads your files to any remote server or AI API. All editing and rendering happen in your browser.' }
+    ],
+    limitations: [
+      'Encrypted or password-locked PDFs must be unlocked before editing.',
+      'Extremely complex layered vector CAD blueprints may take a few seconds to render on low-power devices.'
+    ],
+    tips: [
+      'Use Ctrl+Z / Cmd+Z to undo and Ctrl+Y to redo any changes instantly.',
+      'Click on any placed item to adjust font size, color, or press Delete to remove it.'
+    ]
+  },
+  {
     id: 'jpg-to-pdf',
     slug: 'jpg-to-pdf',
     title: 'JPG & Images to PDF Converter',

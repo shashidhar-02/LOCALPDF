@@ -96,3 +96,47 @@ export interface AcroFormFieldInfo {
   value: string | boolean;
   pageNumber?: number;
 }
+
+export type PdfEditItemType =
+  | 'text'
+  | 'whiteout' // replaces/covers text with matching background color and optional text on top
+  | 'image'
+  | 'stamp'
+  | 'rectangle'
+  | 'circle'
+  | 'line'
+  | 'arrow'
+  | 'highlight'
+  | 'freehand';
+
+export type StandardFontFamily = 'Helvetica' | 'Times-Roman' | 'Courier';
+
+export interface PdfEditItem {
+  id: string;
+  type: PdfEditItemType;
+  pageNumber: number; // 1-based
+  x: number; // points from left
+  y: number; // points from top
+  width: number;
+  height: number;
+  // Text styling
+  text?: string;
+  fontFamily?: StandardFontFamily;
+  fontSize?: number;
+  textColor?: string;
+  backgroundColor?: string;
+  bold?: boolean;
+  italic?: boolean;
+  opacity?: number;
+  // Shapes & borders
+  strokeColor?: string;
+  strokeWidth?: number;
+  fillColor?: string;
+  // Images & Stamps
+  dataUrl?: string; // base64 PNG/JPG
+  stampLabel?: string;
+  // Freehand drawing points
+  points?: { x: number; y: number }[];
+  rotation?: number;
+}
+

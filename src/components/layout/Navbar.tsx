@@ -112,6 +112,10 @@ export default function Navbar() {
               )}
             </div>
 
+            <Link href="/edit-pdf" className="text-sky-600 font-semibold hover:text-sky-700 transition flex items-center space-x-1">
+              <span>Edit PDF</span>
+              <span className="text-[10px] bg-sky-100 text-sky-700 font-bold px-1.5 py-0.5 rounded-full">New</span>
+            </Link>
             <Link href="/privacy" className="hover:text-slate-900 transition">
               Privacy
             </Link>

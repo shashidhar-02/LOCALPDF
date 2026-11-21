@@ -129,6 +129,7 @@ export default function HomePage() {
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                 {[
+                  { name: 'Edit PDF (New)', slug: 'edit-pdf' },
                   { name: 'Merge PDF', slug: 'merge-pdf' },
                   { name: 'Compress PDF', slug: 'compress-pdf' },
                   { name: 'Split PDF', slug: 'split-pdf' },

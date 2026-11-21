@@ -9,7 +9,8 @@ import {
   readPDFMetadata,
   updatePDFMetadata,
   stripPDFMetadata,
-  getPDFPageCount
+  getPDFPageCount,
+  applyPdfEdits
 } from '@/lib/pdf-engine';
 
 // Helper to create a dummy test PDF with specified number of pages
@@ -104,5 +105,82 @@ describe('Core PDF Engine (Client-Side pdf-lib Operations)', () => {
     expect(strippedMeta.title).toBe('');
     expect(strippedMeta.author).toBe('');
     expect(strippedMeta.keywords).toBe('');
+  });
+
+  it('applies text with standard fonts, whiteout redaction, and shapes via applyPdfEdits', async () => {
+    const testPdf = await createTestPDF(2);
+
+    const editedBytes = await applyPdfEdits(testPdf, [
+      {
+        id: 'edit_1',
+        type: 'text',
+        pageNumber: 1,
+        x: 50,
+        y: 100,
+        width: 120,
+        height: 20,
+        text: 'Helvetic Standard Text',
+        fontFamily: 'Helvetica',
+        fontSize: 14,
+        textColor: '#0f172a',
+        bold: true,
+      },
+      {
+        id: 'edit_2',
+        type: 'text',
+        pageNumber: 1,
+        x: 50,
+        y: 130,
+        width: 150,
+        height: 20,
+        text: 'Times New Roman Serif Text',
+        fontFamily: 'Times-Roman',
+        fontSize: 12,
+        textColor: '#2563eb',
+        italic: true,
+      },
+      {
+        id: 'edit_3',
+        type: 'whiteout',
+        pageNumber: 1,
+        x: 50,
+        y: 160,
+        width: 180,
+        height: 30,
+        backgroundColor: '#ffffff',
+        text: 'Replaced Invoice Total $1,250',
+        fontFamily: 'Courier',
+        fontSize: 12,
+        textColor: '#16a34a',
+      },
+      {
+        id: 'edit_4',
+        type: 'rectangle',
+        pageNumber: 1,
+        x: 40,
+        y: 90,
+        width: 250,
+        height: 120,
+        strokeColor: '#dc2626',
+        strokeWidth: 2,
+      },
+      {
+        id: 'edit_5',
+        type: 'highlight',
+        pageNumber: 2,
+        x: 20,
+        y: 40,
+        width: 100,
+        height: 16,
+        backgroundColor: '#fde047',
+        opacity: 0.4,
+      },
+    ]);
+
+    expect(editedBytes).toBeInstanceOf(Uint8Array);
+    expect(editedBytes.length).toBeGreaterThan(testPdf.length);
+
+    const doc = await PDFDocument.load(editedBytes);
+    expect(doc.getPageCount()).toBe(2);
   });
 });

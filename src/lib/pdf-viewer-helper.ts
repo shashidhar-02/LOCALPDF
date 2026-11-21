@@ -134,3 +134,55 @@ export async function extractPdfText(
   const fullText = pageTexts.map((p) => `--- Page ${p.page} ---\n\n${p.text}`).join('\n\n');
   return { fullText, pageTexts };
 }
+
+/**
+ * In-memory LRU render cache for rapid, zero-latency page transitions.
+ */
+interface CachedRender {
+  canvasDataUrl: string;
+  width: number;
+  height: number;
+  timestamp: number;
+}
+
+const renderCache = new Map<string, CachedRender>();
+const MAX_CACHE_ENTRIES = 40;
+
+export function getCachedPageRender(
+  docFingerprint: string,
+  pageNumber: number,
+  scale: number
+): CachedRender | undefined {
+  const key = `${docFingerprint}_${pageNumber}_${scale.toFixed(2)}`;
+  const item = renderCache.get(key);
+  if (item) {
+    item.timestamp = Date.now();
+  }
+  return item;
+}
+
+export function setCachedPageRender(
+  docFingerprint: string,
+  pageNumber: number,
+  scale: number,
+  render: Omit<CachedRender, 'timestamp'>
+) {
+  if (renderCache.size >= MAX_CACHE_ENTRIES) {
+    let oldestKey = '';
+    let oldestTime = Infinity;
+    for (const [k, v] of renderCache.entries()) {
+      if (v.timestamp < oldestTime) {
+        oldestTime = v.timestamp;
+        oldestKey = k;
+      }
+    }
+    if (oldestKey) renderCache.delete(oldestKey);
+  }
+  const key = `${docFingerprint}_${pageNumber}_${scale.toFixed(2)}`;
+  renderCache.set(key, { ...render, timestamp: Date.now() });
+}
+
+export function clearRenderCache() {
+  renderCache.clear();
+}
+
