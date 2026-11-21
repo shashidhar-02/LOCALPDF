@@ -11,6 +11,7 @@ import {
   stripPDFMetadata,
   getPDFPageCount,
   applyPdfEdits,
+  applyVisualAnnotations,
   rotatePageInPdf,
   deletePageInPdf,
   duplicatePageInPdf,
@@ -226,5 +227,64 @@ describe('Core PDF Engine (Client-Side pdf-lib Operations)', () => {
     const numbered = await addPageNumbersToDocument(testPdf, 'bottom-center', 'Page ');
     expect(numbered).toBeInstanceOf(Uint8Array);
     expect(numbered.length).toBeGreaterThan(testPdf.length);
+  });
+
+  it('correctly applies visual annotations (highlights, text, rectangles, freehand drawing)', async () => {
+    const testPdf = await createTestPDF(2);
+
+    const annotatedBytes = await applyVisualAnnotations(testPdf, [
+      {
+        id: 'ann_1',
+        type: 'highlight',
+        pageNumber: 1,
+        x: 40,
+        y: 60,
+        width: 120,
+        height: 18,
+        color: '#facc15',
+        opacity: 0.35,
+      },
+      {
+        id: 'ann_2',
+        type: 'text',
+        pageNumber: 1,
+        x: 40,
+        y: 100,
+        text: 'Important note annotation',
+        color: '#0f172a',
+        fontSize: 14,
+      },
+      {
+        id: 'ann_3',
+        type: 'rectangle',
+        pageNumber: 1,
+        x: 35,
+        y: 50,
+        width: 200,
+        height: 80,
+        color: '#ef4444',
+      },
+      {
+        id: 'ann_4',
+        type: 'drawing',
+        pageNumber: 1,
+        x: 50,
+        y: 150,
+        width: 50,
+        height: 50,
+        color: '#0284c7',
+        points: [
+          { x: 50, y: 150 },
+          { x: 75, y: 175 },
+          { x: 100, y: 150 },
+        ],
+      },
+    ]);
+
+    expect(annotatedBytes).toBeInstanceOf(Uint8Array);
+    expect(annotatedBytes.length).toBeGreaterThan(testPdf.length);
+
+    const doc = await PDFDocument.load(annotatedBytes);
+    expect(doc.getPageCount()).toBe(2);
   });
 });

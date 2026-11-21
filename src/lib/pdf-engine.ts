@@ -445,11 +445,8 @@ export async function applyVisualAnnotations(
     const page = pages[pageIndex];
     const pageHeight = page.getHeight();
 
-    // Parse hex color to rgb
-    const hex = ann.color.replace('#', '');
-    const r = parseInt(hex.substring(0, 2), 16) / 255 || 0;
-    const g = parseInt(hex.substring(2, 4), 16) / 255 || 0;
-    const b = parseInt(hex.substring(4, 6), 16) / 255 || 0;
+    // Use robust color parsing
+    const { r, g, b } = parseHexColor(ann.color);
 
     if (ann.type === 'text' && ann.text) {
       const fontSize = ann.fontSize || 14;
@@ -490,6 +487,18 @@ export async function applyVisualAnnotations(
         thickness: 1.5,
         color: rgb(r, g, b),
       });
+    } else if (ann.type === 'drawing' && ann.points && ann.points.length > 1) {
+      for (let i = 0; i < ann.points.length - 1; i++) {
+        const p1 = ann.points[i];
+        const p2 = ann.points[i + 1];
+        page.drawLine({
+          start: { x: p1.x, y: pageHeight - p1.y },
+          end: { x: p2.x, y: pageHeight - p2.y },
+          thickness: 2,
+          color: rgb(r, g, b),
+          opacity: ann.opacity ?? 1,
+        });
+      }
     }
   }
 
