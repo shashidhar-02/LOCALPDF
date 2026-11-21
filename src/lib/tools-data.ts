@@ -34,6 +34,82 @@ export const TOOLS: ToolMeta[] = [
     ]
   },
   {
+    id: 'redact-pdf',
+    slug: 'redact-pdf',
+    title: 'Redact PDF Online — Permanently Blackout Sensitive Data',
+    shortTitle: 'Redact PDF',
+    tagline: 'Permanently blackout private information, SSNs, financial figures, and addresses.',
+    description: 'Enterprise-grade legal PDF redaction tool. Draw blackout boxes directly over sensitive text with optional custom labels ([REDACTED], CONFIDENTIAL, FOIA EXEMPT). Runs 100% in your browser.',
+    category: 'security',
+    icon: 'ShieldAlertIcon',
+    badge: 'Security',
+    acceptedMimeTypes: 'application/pdf',
+    acceptLabel: 'Choose a PDF to redact',
+    multiple: false,
+    howItWorks: [
+      { step: 1, title: 'Select Document', desc: 'Drop your PDF into the local memory viewer.' },
+      { step: 2, title: 'Mark Redactions', desc: 'Click and drag black boxes over any sensitive words or numbers.' },
+      { step: 3, title: 'Sanitize & Download', desc: 'Click Download. Blackout blocks are burned permanently into the PDF vector stream.' }
+    ],
+    faqs: [
+      { q: 'Can redacted text be selected or copied?', a: 'No. The underlying area is permanently overwritten with solid black vector geometry.' },
+      { q: 'Are documents sent to a cloud server?', a: 'Never. All redaction occurs strictly in client WebAssembly memory.' }
+    ],
+    limitations: [
+      'Scanned bitmap pages cannot be automatically OCR-redacted; you must manually drag the box over the text area.'
+    ],
+    tips: [
+      'Use the "Solid" button if you do not want the [REDACTED] label displayed.'
+    ]
+  },
+  {
+    id: 'watermark-pdf',
+    slug: 'watermark-pdf',
+    title: 'Watermark PDF Online — Add Confidential, Draft & Custom Watermarks',
+    shortTitle: 'Watermark PDF',
+    tagline: 'Stamp diagonal or horizontal text watermarks across all document pages.',
+    description: 'Add customized semi-transparent watermarks (CONFIDENTIAL, DRAFT, DO NOT COPY, SAMPLE) across every page with custom opacity and text styling. 100% private in your browser.',
+    category: 'edit',
+    icon: 'DropletIcon',
+    acceptedMimeTypes: 'application/pdf',
+    acceptLabel: 'Choose a PDF to watermark',
+    multiple: false,
+    howItWorks: [
+      { step: 1, title: 'Upload PDF', desc: 'Choose a PDF document to watermark.' },
+      { step: 2, title: 'Customize Text & Opacity', desc: 'Type your custom watermark text or pick a preset like CONFIDENTIAL or DRAFT.' },
+      { step: 3, title: 'Download', desc: 'Download your watermarked PDF instantly.' }
+    ],
+    faqs: [
+      { q: 'Will watermarking affect existing text?', a: 'No, watermarks are applied as a translucent vector overlay at 45 degrees.' }
+    ],
+    limitations: ['Extremely dense vector drawings might partially overlap the watermark text.'],
+    tips: ['Keep opacity around 20% for optimal readability of underlying text.']
+  },
+  {
+    id: 'page-number-pdf',
+    slug: 'page-number-pdf',
+    title: 'Add Page Numbers to PDF — Free Bates Numbering',
+    shortTitle: 'Page Numbers',
+    tagline: 'Stamp clean page numbers and Bates labels onto all PDF pages automatically.',
+    description: 'Add page numbers (Page 1 of N, Bates-1, etc.) to your documents. Choose position (bottom center, bottom right, top right) and custom prefix. 100% device-only.',
+    category: 'edit',
+    icon: 'HashIcon',
+    aliases: ['add-page-numbers'],
+    acceptedMimeTypes: 'application/pdf',
+    acceptLabel: 'Choose a PDF to add page numbers',
+    multiple: false,
+    howItWorks: [
+      { step: 1, title: 'Upload PDF', desc: 'Select any PDF document from your device.' },
+      { step: 2, title: 'Pick Style & Position', desc: 'Select formatting (Page 1 of N) and positioning (Bottom Center, Bottom Right, Top Right).' },
+      { step: 3, title: 'Download', desc: 'Download your numbered PDF immediately.' }
+    ],
+    faqs: [
+      { q: 'Can I customize the numbering prefix?', a: 'Yes, you can enter any custom prefix like "Page ", "Doc-", or "Bates-".' }
+    ],
+    limitations: ['Pages with zero margins might display numbers close to content.'],
+    tips: ['Bottom Center is the standard convention for formal and academic documents.']
+  },
+  {
     id: 'jpg-to-pdf',
     slug: 'jpg-to-pdf',
     title: 'JPG & Images to PDF Converter',

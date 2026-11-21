@@ -59,13 +59,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#0284c7" />
       </head>
-      <body className="flex flex-col min-h-screen bg-slate-50 text-slate-900">
+      <body className="flex flex-col min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 transition-colors">
         <Navbar />
         <main className="flex-1">{children}</main>
         <Footer />

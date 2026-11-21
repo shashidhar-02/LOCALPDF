@@ -22,7 +22,11 @@ import {
   XCircle,
   Cpu,
   Zap,
-  HardDrive
+  HardDrive,
+  ShieldAlert,
+  Droplet,
+  Hash,
+  Sparkles
 } from 'lucide-react';
 import FileDropzone from '@/components/common/FileDropzone';
 import { TOOLS } from '@/lib/tools-data';
@@ -39,18 +43,21 @@ export default function HomePage() {
 
   const getToolIcon = (iconName: string) => {
     switch (iconName) {
-      case 'ImageIcon': return <ImageIcon className="w-5 h-5 text-sky-600" />;
-      case 'CombineIcon': return <Combine className="w-5 h-5 text-sky-600" />;
-      case 'ScissorsIcon': return <Scissors className="w-5 h-5 text-sky-600" />;
-      case 'LayersIcon': return <Layers className="w-5 h-5 text-sky-600" />;
-      case 'RotateCwIcon': return <RotateCw className="w-5 h-5 text-sky-600" />;
-      case 'GridIcon': return <Grid className="w-5 h-5 text-sky-600" />;
-      case 'Minimize2Icon': return <Minimize2 className="w-5 h-5 text-sky-600" />;
-      case 'PenToolIcon': return <PenTool className="w-5 h-5 text-sky-600" />;
-      case 'CheckSquareIcon': return <CheckSquare className="w-5 h-5 text-sky-600" />;
-      case 'FileTextIcon': return <FileText className="w-5 h-5 text-sky-600" />;
-      case 'ScanTextIcon': return <ScanText className="w-5 h-5 text-sky-600" />;
-      default: return <FileText className="w-5 h-5 text-sky-600" />;
+      case 'ImageIcon': return <ImageIcon className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
+      case 'CombineIcon': return <Combine className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
+      case 'ScissorsIcon': return <Scissors className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
+      case 'LayersIcon': return <Layers className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
+      case 'RotateCwIcon': return <RotateCw className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
+      case 'GridIcon': return <Grid className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
+      case 'Minimize2Icon': return <Minimize2 className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
+      case 'PenToolIcon': return <PenTool className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
+      case 'CheckSquareIcon': return <CheckSquare className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
+      case 'FileTextIcon': return <FileText className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
+      case 'ScanTextIcon': return <ScanText className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
+      case 'ShieldAlertIcon': return <ShieldAlert className="w-5 h-5 text-red-600 dark:text-red-400" />;
+      case 'DropletIcon': return <Droplet className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
+      case 'HashIcon': return <Hash className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />;
+      default: return <FileText className="w-5 h-5 text-sky-600 dark:text-sky-400" />;
     }
   };
 
@@ -129,14 +136,16 @@ export default function HomePage() {
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                 {[
-                  { name: 'Edit PDF (New)', slug: 'edit-pdf' },
+                  { name: 'Edit PDF', slug: 'edit-pdf' },
+                  { name: 'Redact & Blackout', slug: 'redact-pdf' },
+                  { name: 'Watermark PDF', slug: 'watermark-pdf' },
+                  { name: 'Page Numbers', slug: 'page-number-pdf' },
                   { name: 'Merge PDF', slug: 'merge-pdf' },
                   { name: 'Compress PDF', slug: 'compress-pdf' },
                   { name: 'Split PDF', slug: 'split-pdf' },
                   { name: 'Sign PDF', slug: 'sign-pdf' },
                   { name: 'Rotate PDF', slug: 'rotate-pdf' },
                   { name: 'Extract Pages', slug: 'extract-pdf-pages' },
-                  { name: 'Annotate PDF', slug: 'annotate-pdf' },
                   { name: 'Extract Text', slug: 'pdf-to-text' },
                   { name: 'Strip Metadata', slug: 'pdf-metadata' },
                 ].map((action) => (
