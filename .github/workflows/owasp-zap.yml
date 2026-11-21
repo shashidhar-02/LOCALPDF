@@ -1,0 +1,55 @@
+name: OWASP ZAP DAST Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 4 * * 0' # Weekly Sunday run
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  zap-baseline-scan:
+    name: OWASP ZAP Baseline Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Next.js application
+        run: npm run build
+
+      - name: Start production server
+        run: |
+          npm run start -- -p 3000 &
+          # Wait until server is reachable
+          for i in {1..30}; do
+            if curl -s http://localhost:3000 > /dev/null; then
+              echo "LocalPDF server is responding on port 3000"
+              break
+            fi
+            echo "Waiting for server to start... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: 'http://localhost:3000'
+          network_name: 'host'
+          fail_action: false
+          allow_issue_writing: false
