@@ -11,8 +11,6 @@ import {
   PenTool,
   Square,
   Circle,
-  ArrowRight,
-  Minus,
   Highlighter,
   Image as ImageIcon,
   Stamp,
@@ -21,27 +19,49 @@ import {
   Trash2,
   ZoomIn,
   ZoomOut,
-  Maximize2,
-  RotateCcw,
   Move,
   Bold,
   Italic,
   Lock,
   ChevronLeft,
   ChevronRight,
-  Eye
+  ShieldAlert,
+  Sparkles,
+  RotateCw,
+  Copy,
+  PlusCircle,
+  FilePlus,
+  Hash,
+  Droplet,
+  Layers
 } from 'lucide-react';
 import FileDropzone from '@/components/common/FileDropzone';
-import { applyPdfEdits, getPDFPageCount } from '@/lib/pdf-engine';
+import {
+  applyPdfEdits,
+  getPDFPageCount,
+  rotatePageInPdf,
+  deletePageInPdf,
+  duplicatePageInPdf,
+  insertBlankPageInPdf,
+  addWatermarkToDocument,
+  addPageNumbersToDocument
+} from '@/lib/pdf-engine';
 import { downloadFile } from '@/lib/object-url';
 import { formatBytes } from '@/lib/format';
-import { PdfEditItem, PdfEditItemType, StandardFontFamily } from '@/lib/types';
+import {
+  PdfEditItem,
+  PdfEditItemType,
+  StandardFontFamily,
+  DetectedPdfTextItem
+} from '@/lib/types';
 import {
   loadPdfDocument,
   renderPdfPageToCanvas,
   renderPageThumbnail,
   getCachedPageRender,
-  setCachedPageRender
+  setCachedPageRender,
+  clearRenderCache,
+  extractPageTextItems
 } from '@/lib/pdf-viewer-helper';
 
 const PRESET_STAMPS = [
@@ -63,7 +83,12 @@ export default function EditPdfTool() {
   const [thumbnails, setThumbnails] = useState<{ [page: number]: string }>({});
 
   // Active Tool Mode
-  const [activeTool, setActiveTool] = useState<PdfEditItemType | 'select'>('text');
+  const [activeTool, setActiveTool] = useState<PdfEditItemType | 'select' | 'detect-text'>('select');
+
+  // Adobe Pro Mode: Detected text blocks on current page
+  const [detectedTexts, setDetectedTexts] = useState<DetectedPdfTextItem[]>([]);
+  const [isDetectingText, setIsDetectingText] = useState<boolean>(false);
+  const [showDetectedOverlay, setShowDetectedOverlay] = useState<boolean>(false);
 
   // Text / Font Styling
   const [fontFamily, setFontFamily] = useState<StandardFontFamily>('Helvetica');
@@ -79,6 +104,16 @@ export default function EditPdfTool() {
   const [strokeWidth, setStrokeWidth] = useState<number>(2);
   const [opacity, setOpacity] = useState<number>(1.0);
 
+  // Redaction custom label
+  const [redactionLabel, setRedactionLabel] = useState<string>('[REDACTED]');
+
+  // Modals for Adobe Enterprise Features
+  const [showWatermarkModal, setShowWatermarkModal] = useState<boolean>(false);
+  const [watermarkInput, setWatermarkInput] = useState<string>('CONFIDENTIAL');
+  const [showPageNumbersModal, setShowPageNumbersModal] = useState<boolean>(false);
+  const [pageNumberPrefix, setPageNumberPrefix] = useState<string>('Page ');
+  const [pageNumberPosition, setPageNumberPosition] = useState<'bottom-center' | 'bottom-right' | 'top-right'>('bottom-center');
+
   // Edits State & Undo/Redo History Stack
   const [edits, setEdits] = useState<PdfEditItem[]>([]);
   const [history, setHistory] = useState<PdfEditItem[][]>([]);
@@ -87,26 +122,23 @@ export default function EditPdfTool() {
 
   // Canvas interaction refs
   const pageCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const [isInteracting, setIsInteracting] = useState(false);
   const [interactionStart, setInteractionStart] = useState<{ x: number; y: number } | null>(null);
   const [currentFreehandPoints, setCurrentFreehandPoints] = useState<{ x: number; y: number }[]>([]);
 
-  // Dragging / Moving an existing item
-  const [isDraggingItem, setIsDraggingItem] = useState(false);
-  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-
   // Processing & Download state
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [isPageOperating, setIsPageOperating] = useState<boolean>(false);
   const [isRenderingPage, setIsRenderingPage] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<boolean>(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [resultBytes, setResultBytes] = useState<number | null>(null);
 
   // Hidden Image File Input
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Helper to push history for undo/redo
+  // Push history for undo/redo
   const recordHistory = useCallback((newEdits: PdfEditItem[]) => {
     setHistory((prev) => {
       const upToCurrent = prev.slice(0, historyIndex + 1);
@@ -126,31 +158,35 @@ export default function EditPdfTool() {
     try {
       const buffer = await selected.arrayBuffer();
       const bytes = new Uint8Array(buffer);
-      const pages = await getPDFPageCount(bytes);
-      const loadedDoc = await loadPdfDocument(bytes);
-      const randomDocId = `${selected.name}_${selected.size}_${Date.now()}`;
-
-      setFile(selected);
-      setFileBytes(bytes);
-      setTotalPages(pages);
-      setPdfDoc(loadedDoc);
-      setDocId(randomDocId);
-      setCurrentPage(1);
-      setEdits([]);
-      setHistory([[]]);
-      setHistoryIndex(0);
-      setSelectedItemId(null);
-
-      // Asynchronously pre-generate thumbnails for sidebar
-      generateThumbnails(loadedDoc, pages);
+      await initializePdfState(selected, bytes);
     } catch {
       setError('Could not read PDF. File may be password-protected or corrupt.');
     }
   };
 
+  const initializePdfState = async (selected: File, bytes: Uint8Array) => {
+    const pages = await getPDFPageCount(bytes);
+    const loadedDoc = await loadPdfDocument(bytes);
+    const randomDocId = `${selected.name}_${selected.size}_${Date.now()}`;
+
+    setFile(selected);
+    setFileBytes(bytes);
+    setTotalPages(pages);
+    setPdfDoc(loadedDoc);
+    setDocId(randomDocId);
+    setCurrentPage(1);
+    setEdits([]);
+    setHistory([[]]);
+    setHistoryIndex(0);
+    setSelectedItemId(null);
+    clearRenderCache();
+
+    generateThumbnails(loadedDoc, pages);
+  };
+
   const generateThumbnails = async (loadedDoc: any, pages: number) => {
     const thumbMap: { [page: number]: string } = {};
-    const limit = Math.min(pages, 15);
+    const limit = Math.min(pages, 20);
     for (let i = 1; i <= limit; i++) {
       try {
         const thumbUrl = await renderPageThumbnail(loadedDoc, i, 120);
@@ -171,7 +207,6 @@ export default function EditPdfTool() {
     const cached = getCachedPageRender(docId, currentPage, scale);
 
     if (cached) {
-      // Rapid cache hit: render in 0ms!
       const img = new Image();
       img.onload = () => {
         if (isCancelled) return;
@@ -188,12 +223,10 @@ export default function EditPdfTool() {
       return;
     }
 
-    // Cache miss: render via PDF.js
     setIsRenderingPage(true);
     renderPdfPageToCanvas(pdfDoc, currentPage, canvas, scale)
       .then(() => {
         if (isCancelled) return;
-        // Save to LRU cache
         const dataUrl = canvas.toDataURL('image/png');
         setCachedPageRender(docId, currentPage, scale, {
           canvasDataUrl: dataUrl,
@@ -213,15 +246,31 @@ export default function EditPdfTool() {
     };
   }, [pdfDoc, currentPage, scale, docId]);
 
+  // Adobe Pro Text Detection: scan current page for existing text items
+  const handleToggleDetectText = async () => {
+    if (showDetectedOverlay) {
+      setShowDetectedOverlay(false);
+      return;
+    }
+
+    if (!pdfDoc) return;
+    setIsDetectingText(true);
+    try {
+      const items = await extractPageTextItems(pdfDoc, currentPage);
+      setDetectedTexts(items);
+      setShowDetectedOverlay(true);
+      setActiveTool('detect-text');
+    } catch {
+      setError('Could not extract text structure for editing.');
+    } finally {
+      setIsDetectingText(false);
+    }
+  };
+
   // Convert client viewport coordinates to PDF points (1/72 inch)
   const getRelativePdfPoint = (clientX: number, clientY: number) => {
     if (!pageCanvasRef.current) return { x: 0, y: 0 };
     const rect = pageCanvasRef.current.getBoundingClientRect();
-    const pixelRatio = window.devicePixelRatio || 1;
-    const canvasCssWidth = pageCanvasRef.current.width / pixelRatio;
-    const scaleFactor = canvasCssWidth > 0 ? (pageCanvasRef.current.width / pixelRatio) / (rect.width) : 1;
-
-    // Relative to canvas in PDF points (scale adjusted)
     const relX = (clientX - rect.left) / scale;
     const relY = (clientY - rect.top) / scale;
     return { x: Math.round(relX), y: Math.round(relY) };
@@ -246,15 +295,39 @@ export default function EditPdfTool() {
     }
   };
 
+  // When clicking an auto-detected text block: Adobe Acrobat-style in-place edit!
+  const handleSelectDetectedText = (dt: DetectedPdfTextItem) => {
+    // Create an in-place whiteout box pre-populated with original text and matched font style
+    const newItem: PdfEditItem = {
+      id: `edit_text_${Date.now()}`,
+      type: 'whiteout',
+      pageNumber: currentPage,
+      x: dt.x - 2,
+      y: dt.y - 2,
+      width: Math.max(30, dt.width + 6),
+      height: Math.max(16, dt.height + 4),
+      backgroundColor: '#ffffff',
+      text: dt.str,
+      fontFamily: dt.fontFamily,
+      fontSize: dt.fontSize,
+      textColor: '#0f172a',
+      bold: false,
+      italic: false,
+      opacity: 1.0,
+    };
+
+    recordHistory([...edits, newItem]);
+    setSelectedItemId(newItem.id);
+    setActiveTool('select');
+    setShowDetectedOverlay(false);
+  };
+
   // Canvas Click / Mouse Down Handlers
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
     if (!pageCanvasRef.current) return;
     const pt = getRelativePdfPoint(e.clientX, e.clientY);
 
-    if (activeTool === 'select') {
-      // Check if clicked outside of any item to deselect
-      return;
-    }
+    if (activeTool === 'select' || activeTool === 'detect-text') return;
 
     if (activeTool === 'freehand') {
       setIsInteracting(true);
@@ -285,13 +358,7 @@ export default function EditPdfTool() {
       return;
     }
 
-    if (activeTool === 'whiteout') {
-      setIsInteracting(true);
-      setInteractionStart(pt);
-      return;
-    }
-
-    if (['rectangle', 'circle', 'line', 'arrow', 'highlight'].includes(activeTool)) {
+    if (['whiteout', 'redaction', 'rectangle', 'circle', 'line', 'arrow', 'highlight'].includes(activeTool)) {
       setIsInteracting(true);
       setInteractionStart(pt);
       return;
@@ -337,8 +404,8 @@ export default function EditPdfTool() {
     }
 
     if (interactionStart) {
-      const width = Math.max(20, Math.abs(endPt.x - interactionStart.x));
-      const height = Math.max(16, Math.abs(endPt.y - interactionStart.y));
+      const width = Math.max(18, Math.abs(endPt.x - interactionStart.x));
+      const height = Math.max(14, Math.abs(endPt.y - interactionStart.y));
       const x = Math.min(interactionStart.x, endPt.x);
       const y = Math.min(interactionStart.y, endPt.y);
 
@@ -358,6 +425,26 @@ export default function EditPdfTool() {
           textColor,
           bold: isBold,
           italic: isItalic,
+          opacity: 1.0,
+        };
+        recordHistory([...edits, newItem]);
+        setSelectedItemId(newItem.id);
+        setActiveTool('select');
+      } else if (activeTool === 'redaction') {
+        const newItem: PdfEditItem = {
+          id: `redact_${Date.now()}`,
+          type: 'redaction',
+          pageNumber: currentPage,
+          x,
+          y,
+          width,
+          height,
+          backgroundColor: '#000000',
+          text: redactionLabel,
+          textColor: '#ffffff',
+          fontFamily: 'Helvetica',
+          fontSize: 9,
+          bold: true,
           opacity: 1.0,
         };
         recordHistory([...edits, newItem]);
@@ -458,6 +545,21 @@ export default function EditPdfTool() {
     setSelectedItemId(null);
   };
 
+  // Duplicate selected item (Ctrl+D)
+  const handleDuplicateSelected = () => {
+    if (!selectedItemId) return;
+    const item = edits.find((it) => it.id === selectedItemId);
+    if (!item) return;
+    const duplicated: PdfEditItem = {
+      ...item,
+      id: `${item.type}_${Date.now()}`,
+      x: item.x + 15,
+      y: item.y + 15,
+    };
+    recordHistory([...edits, duplicated]);
+    setSelectedItemId(duplicated.id);
+  };
+
   // Update properties of selected item
   const updateSelectedItem = (props: Partial<PdfEditItem>) => {
     if (!selectedItemId) return;
@@ -465,12 +567,23 @@ export default function EditPdfTool() {
     recordHistory(newEdits);
   };
 
-  // Keyboard shortcut listener for Delete and Undo/Redo
+  // Nudge item via keyboard arrows
+  const handleNudge = (deltaX: number, deltaY: number) => {
+    if (!selectedItemId) return;
+    const item = edits.find((it) => it.id === selectedItemId);
+    if (!item) return;
+    updateSelectedItem({
+      x: Math.max(0, item.x + deltaX),
+      y: Math.max(0, item.y + deltaY),
+    });
+  };
+
+  // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
-        return;
-      }
+      const targetTag = (e.target as HTMLElement).tagName;
+      if (targetTag === 'INPUT' || targetTag === 'TEXTAREA') return;
+
       if (e.key === 'Delete' || e.key === 'Backspace') {
         handleDeleteSelected();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
@@ -478,15 +591,132 @@ export default function EditPdfTool() {
         else handleUndo();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
         handleRedo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        handleDuplicateSelected();
+      } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        if (e.key === 'ArrowUp') handleNudge(0, -step);
+        if (e.key === 'ArrowDown') handleNudge(0, step);
+        if (e.key === 'ArrowLeft') handleNudge(-step, 0);
+        if (e.key === 'ArrowRight') handleNudge(step, 0);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedItemId, edits, historyIndex, history]);
 
+  // Adobe Page Operations: Rotate Page
+  const handleRotateCurrentPage = async (angle: number) => {
+    if (!fileBytes) return;
+    setIsPageOperating(true);
+    try {
+      const newBytes = await rotatePageInPdf(fileBytes, currentPage, angle);
+      await refreshPdfBytes(newBytes, `Rotated Page ${currentPage} by ${angle}°`);
+    } catch {
+      setError('Failed to rotate page.');
+    } finally {
+      setIsPageOperating(false);
+    }
+  };
+
+  // Adobe Page Operations: Delete Page
+  const handleDeleteCurrentPage = async () => {
+    if (!fileBytes || totalPages <= 1) return;
+    if (!confirm(`Are you sure you want to permanently delete Page ${currentPage}?`)) return;
+
+    setIsPageOperating(true);
+    try {
+      const newBytes = await deletePageInPdf(fileBytes, currentPage);
+      const nextTargetPage = Math.max(1, currentPage - 1);
+      await refreshPdfBytes(newBytes, `Page ${currentPage} deleted`, nextTargetPage);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to delete page.');
+    } finally {
+      setIsPageOperating(false);
+    }
+  };
+
+  // Adobe Page Operations: Duplicate Page
+  const handleDuplicateCurrentPage = async () => {
+    if (!fileBytes) return;
+    setIsPageOperating(true);
+    try {
+      const newBytes = await duplicatePageInPdf(fileBytes, currentPage);
+      await refreshPdfBytes(newBytes, `Duplicated Page ${currentPage}`);
+    } catch {
+      setError('Failed to duplicate page.');
+    } finally {
+      setIsPageOperating(false);
+    }
+  };
+
+  // Adobe Page Operations: Add Blank Page
+  const handleAddBlankPage = async () => {
+    if (!fileBytes) return;
+    setIsPageOperating(true);
+    try {
+      const newBytes = await insertBlankPageInPdf(fileBytes, currentPage);
+      await refreshPdfBytes(newBytes, `Inserted blank page after Page ${currentPage}`, currentPage + 1);
+    } catch {
+      setError('Failed to insert blank page.');
+    } finally {
+      setIsPageOperating(false);
+    }
+  };
+
+  // Adobe Watermark Generator: Apply to Document
+  const handleApplyWatermark = async () => {
+    if (!fileBytes || !watermarkInput.trim()) return;
+    setIsPageOperating(true);
+    setShowWatermarkModal(false);
+    try {
+      const newBytes = await addWatermarkToDocument(fileBytes, watermarkInput.trim(), 0.18);
+      await refreshPdfBytes(newBytes, `Applied watermark "${watermarkInput}" across all pages`);
+    } catch {
+      setError('Failed to apply watermark.');
+    } finally {
+      setIsPageOperating(false);
+    }
+  };
+
+  // Adobe Page Numbers: Apply to Document
+  const handleApplyPageNumbers = async () => {
+    if (!fileBytes) return;
+    setIsPageOperating(true);
+    setShowPageNumbersModal(false);
+    try {
+      const newBytes = await addPageNumbersToDocument(fileBytes, pageNumberPosition, pageNumberPrefix);
+      await refreshPdfBytes(newBytes, `Applied page numbering across document`);
+    } catch {
+      setError('Failed to apply page numbering.');
+    } finally {
+      setIsPageOperating(false);
+    }
+  };
+
+  // Refresh PDF document bytes in-place
+  const refreshPdfBytes = async (newBytes: Uint8Array, message: string, targetPage?: number) => {
+    clearRenderCache();
+    const newDoc = await loadPdfDocument(newBytes);
+    const count = await getPDFPageCount(newBytes);
+    const newId = `${docId}_mod_${Date.now()}`;
+
+    setFileBytes(newBytes);
+    setPdfDoc(newDoc);
+    setTotalPages(count);
+    setDocId(newId);
+    if (targetPage) setCurrentPage(targetPage);
+    generateThumbnails(newDoc, count);
+
+    setStatusMessage(message);
+    setTimeout(() => setStatusMessage(null), 3000);
+  };
+
   // Export & Download Edited PDF
   const handleDownloadEditedPdf = async () => {
-    if (!fileBytes || edits.length === 0) return;
+    if (!fileBytes) return;
     setIsExporting(true);
     setError(null);
     setSuccess(false);
@@ -512,22 +742,27 @@ export default function EditPdfTool() {
       {!file ? (
         <FileDropzone
           acceptedMimeTypes="application/pdf"
-          acceptLabel="Choose a PDF file to edit"
+          acceptLabel="Choose a PDF to edit with Adobe Pro-level tools"
           multiple={false}
           onFilesSelected={handleFilesSelected}
         />
       ) : (
         <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col">
-          {/* Top Bar: Title & Primary Actions */}
+          {/* Top Bar: Title & Primary Enterprise Actions */}
           <div className="p-4 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-4 border-b border-slate-800">
             <div className="flex items-center space-x-3">
-              <span className="p-2 bg-sky-500/20 text-sky-400 rounded-lg">
-                <Type className="w-5 h-5" />
+              <span className="p-2 bg-gradient-to-br from-indigo-500 to-sky-500 text-white rounded-lg shadow-sm">
+                <Sparkles className="w-5 h-5" />
               </span>
               <div>
-                <h3 className="font-bold text-sm sm:text-base leading-tight truncate max-w-xs sm:max-w-md">
-                  {file.name}
-                </h3>
+                <div className="flex items-center space-x-2">
+                  <h3 className="font-bold text-sm sm:text-base leading-tight truncate max-w-xs sm:max-w-md">
+                    {file.name}
+                  </h3>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    Pro Tools Free
+                  </span>
+                </div>
                 <p className="text-xs text-slate-400">
                   {formatBytes(file.size)} • {totalPages} {totalPages === 1 ? 'page' : 'pages'} • {edits.length} {edits.length === 1 ? 'edit' : 'edits'}
                 </p>
@@ -577,7 +812,7 @@ export default function EditPdfTool() {
 
               <button
                 onClick={handleDownloadEditedPdf}
-                disabled={isExporting}
+                disabled={isExporting || isPageOperating}
                 className="inline-flex items-center space-x-2 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 text-white font-semibold px-4 py-2 rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 text-sm"
               >
                 {isExporting ? (
@@ -595,8 +830,9 @@ export default function EditPdfTool() {
             </div>
           </div>
 
-          {/* Secondary Tool Selection Toolbar */}
-          <div className="px-4 py-3 bg-slate-100 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs sm:text-sm">
+          {/* Adobe Acrobat Pro Tools Bar */}
+          <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm">
+            {/* Primary Edit Modes */}
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 onClick={() => setActiveTool('select')}
@@ -605,10 +841,28 @@ export default function EditPdfTool() {
                     ? 'bg-sky-600 text-white shadow-sm'
                     : 'bg-white hover:bg-slate-200 text-slate-700'
                 }`}
-                title="Select and reposition elements"
+                title="Select, move, and edit elements"
               >
                 <Move className="w-4 h-4" />
                 <span>Select</span>
+              </button>
+
+              {/* Adobe Pro Feature: Click to Edit Existing Text */}
+              <button
+                onClick={handleToggleDetectText}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-bold border transition-all ${
+                  showDetectedOverlay
+                    ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                    : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                }`}
+                title="Auto-detect and click to edit any existing text on this page directly"
+              >
+                {isDetectingText ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
+                <span>Edit Existing Text (Acrobat Mode)</span>
               </button>
 
               <button
@@ -637,6 +891,20 @@ export default function EditPdfTool() {
                 <span>Erase / Replace</span>
               </button>
 
+              {/* Adobe Legal Redaction Tool */}
+              <button
+                onClick={() => setActiveTool('redaction')}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
+                  activeTool === 'redaction'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'bg-white hover:bg-slate-200 text-slate-900'
+                }`}
+                title="Permanent Legal Redaction Blackout"
+              >
+                <ShieldAlert className="w-4 h-4 text-red-500" />
+                <span>Redact</span>
+              </button>
+
               <button
                 onClick={() => setActiveTool('highlight')}
                 className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
@@ -657,7 +925,7 @@ export default function EditPdfTool() {
                     ? 'bg-sky-600 text-white shadow-sm'
                     : 'bg-white hover:bg-slate-200 text-slate-700'
                 }`}
-                title="Draw freehand"
+                title="Freehand markup"
               >
                 <PenTool className="w-4 h-4" />
                 <span>Draw</span>
@@ -670,7 +938,7 @@ export default function EditPdfTool() {
                     ? 'bg-sky-600 text-white shadow-sm'
                     : 'bg-white hover:bg-slate-200 text-slate-700'
                 }`}
-                title="Draw rectangle"
+                title="Draw rectangle box"
               >
                 <Square className="w-4 h-4" />
                 <span>Box</span>
@@ -706,22 +974,25 @@ export default function EditPdfTool() {
               />
             </div>
 
-            {/* Quick Stamps Dropdown / Buttons */}
-            <div className="flex items-center space-x-1.5">
-              <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider flex items-center space-x-1">
-                <Stamp className="w-3.5 h-3.5" />
-                <span>Stamps:</span>
-              </span>
-              {PRESET_STAMPS.map((st) => (
-                <button
-                  key={st.label}
-                  onClick={() => handleAddStamp(st.label, st.color, st.bg)}
-                  style={{ color: st.color, borderColor: st.color }}
-                  className="px-2 py-0.5 text-xs font-black rounded border border-dashed hover:scale-105 active:scale-95 transition-transform"
-                >
-                  {st.label}
-                </button>
-              ))}
+            {/* Document-level Adobe Tools: Watermark & Page Numbers */}
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setShowWatermarkModal(true)}
+                className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold"
+                title="Add watermark across all pages"
+              >
+                <Droplet className="w-3.5 h-3.5 text-sky-600" />
+                <span>Watermark</span>
+              </button>
+
+              <button
+                onClick={() => setShowPageNumbersModal(true)}
+                className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold"
+                title="Add page numbers or Bates labels"
+              >
+                <Hash className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Page Numbers</span>
+              </button>
             </div>
           </div>
 
@@ -827,12 +1098,31 @@ export default function EditPdfTool() {
               />
             </div>
 
-            {/* Delete button if an item is selected */}
+            {/* Redaction label input if redaction active */}
+            {activeTool === 'redaction' && (
+              <div className="flex items-center space-x-1 bg-red-50 border border-red-200 px-2 py-0.5 rounded">
+                <span className="text-red-700 font-medium">Label:</span>
+                <input
+                  type="text"
+                  value={redactionLabel}
+                  onChange={(e) => setRedactionLabel(e.target.value)}
+                  placeholder="[REDACTED]"
+                  className="w-24 bg-white border border-red-300 rounded px-1.5 py-0.5 text-xs text-red-800"
+                />
+              </div>
+            )}
+
+            {/* Action buttons if item selected */}
             {selectedItem && (
               <div className="ml-auto flex items-center space-x-2">
-                <span className="text-xs text-sky-700 font-medium bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
-                  Item Selected ({selectedItem.type})
-                </span>
+                <button
+                  onClick={handleDuplicateSelected}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-medium transition-colors"
+                  title="Duplicate (Ctrl+D)"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Duplicate</span>
+                </button>
                 <button
                   onClick={handleDeleteSelected}
                   className="flex items-center space-x-1 px-2.5 py-1 rounded bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-medium transition-colors"
@@ -845,57 +1135,106 @@ export default function EditPdfTool() {
             )}
           </div>
 
-          {/* Main Editing Area: Left Thumbnail Sidebar + Right Interactive Canvas */}
-          <div className="flex-1 flex overflow-hidden min-h-[600px] bg-slate-200">
-            {/* Thumbnail Navigator */}
-            <div className="w-40 sm:w-48 bg-slate-100 border-r border-slate-200 p-3 overflow-y-auto space-y-3 shrink-0">
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                Pages ({totalPages})
-              </p>
-              {Array.from({ length: totalPages }).map((_, idx) => {
-                const pageNum = idx + 1;
-                const pageEditsCount = edits.filter((it) => it.pageNumber === pageNum).length;
-                const isSelected = currentPage === pageNum;
-
-                return (
+          {/* Main Editing Area: Left Sidebar (Page tools + Thumbnails) + Right Canvas */}
+          <div className="flex-1 flex overflow-hidden min-h-[620px] bg-slate-200">
+            {/* Sidebar with Adobe Page-level management */}
+            <div className="w-44 sm:w-52 bg-slate-100 border-r border-slate-200 p-3 overflow-y-auto space-y-3 shrink-0 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Pages ({totalPages})
+                  </span>
                   <button
-                    key={pageNum}
-                    onClick={() => setCurrentPage(pageNum)}
-                    className={`w-full text-left p-2 rounded-xl transition-all relative ${
-                      isSelected
-                        ? 'bg-sky-500/10 border-2 border-sky-600 shadow-sm'
-                        : 'bg-white border border-slate-200 hover:border-slate-300'
-                    }`}
+                    onClick={handleAddBlankPage}
+                    className="p-1 text-slate-600 hover:text-sky-600 hover:bg-sky-50 rounded"
+                    title="Insert blank page"
                   >
-                    <div className="aspect-[3/4] bg-slate-50 rounded overflow-hidden flex items-center justify-center border border-slate-100">
-                      {thumbnails[pageNum] ? (
-                        <img
-                          src={thumbnails[pageNum]}
-                          alt={`Page ${pageNum}`}
-                          className="w-full h-full object-contain pointer-events-none"
-                        />
-                      ) : (
-                        <span className="text-xs text-slate-400 font-mono">P. {pageNum}</span>
-                      )}
-                    </div>
-                    <div className="mt-1 flex items-center justify-between text-xs">
-                      <span className={`font-semibold ${isSelected ? 'text-sky-700' : 'text-slate-600'}`}>
-                        Page {pageNum}
-                      </span>
-                      {pageEditsCount > 0 && (
-                        <span className="bg-sky-600 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-                          {pageEditsCount}
-                        </span>
-                      )}
-                    </div>
+                    <PlusCircle className="w-4 h-4" />
                   </button>
-                );
-              })}
+                </div>
+
+                <div className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
+                  {Array.from({ length: totalPages }).map((_, idx) => {
+                    const pageNum = idx + 1;
+                    const pageEditsCount = edits.filter((it) => it.pageNumber === pageNum).length;
+                    const isSelected = currentPage === pageNum;
+
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`w-full text-left p-2 rounded-xl transition-all relative ${
+                          isSelected
+                            ? 'bg-sky-500/10 border-2 border-sky-600 shadow-sm'
+                            : 'bg-white border border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="aspect-[3/4] bg-slate-50 rounded overflow-hidden flex items-center justify-center border border-slate-100">
+                          {thumbnails[pageNum] ? (
+                            <img
+                              src={thumbnails[pageNum]}
+                              alt={`Page ${pageNum}`}
+                              className="w-full h-full object-contain pointer-events-none"
+                            />
+                          ) : (
+                            <span className="text-xs text-slate-400 font-mono">P. {pageNum}</span>
+                          )}
+                        </div>
+                        <div className="mt-1 flex items-center justify-between text-xs">
+                          <span className={`font-semibold ${isSelected ? 'text-sky-700' : 'text-slate-600'}`}>
+                            Page {pageNum}
+                          </span>
+                          {pageEditsCount > 0 && (
+                            <span className="bg-sky-600 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
+                              {pageEditsCount}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* In-Editor Page Management Panel */}
+              <div className="pt-3 border-t border-slate-200 space-y-1.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Page {currentPage} Actions
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    onClick={() => handleRotateCurrentPage(90)}
+                    disabled={isPageOperating}
+                    className="flex items-center justify-center space-x-1 p-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded text-[11px] font-semibold text-slate-700"
+                    title="Rotate page 90 degrees clockwise"
+                  >
+                    <RotateCw className="w-3 h-3 text-sky-600" />
+                    <span>Rotate</span>
+                  </button>
+                  <button
+                    onClick={handleDuplicateCurrentPage}
+                    disabled={isPageOperating}
+                    className="flex items-center justify-center space-x-1 p-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded text-[11px] font-semibold text-slate-700"
+                    title="Duplicate current page"
+                  >
+                    <Copy className="w-3 h-3 text-indigo-600" />
+                    <span>Clone</span>
+                  </button>
+                  <button
+                    onClick={handleDeleteCurrentPage}
+                    disabled={isPageOperating || totalPages <= 1}
+                    className="col-span-2 flex items-center justify-center space-x-1 p-1.5 bg-red-50 border border-red-200 hover:bg-red-100 rounded text-[11px] font-semibold text-red-700 disabled:opacity-40"
+                    title="Delete page from document"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>Delete Page</span>
+                  </button>
+                </div>
+              </div>
             </div>
 
             {/* Central Canvas Workspace */}
             <div
-              ref={containerRef}
               className="flex-1 p-6 overflow-auto flex items-center justify-center relative select-none"
               onClick={() => {
                 if (activeTool === 'select') setSelectedItemId(null);
@@ -910,6 +1249,14 @@ export default function EditPdfTool() {
                 </div>
               )}
 
+              {/* Status popup banner */}
+              {statusMessage && (
+                <div className="absolute top-4 z-30 bg-slate-900 text-white px-4 py-1.5 rounded-full text-xs font-medium shadow-lg animate-fade-in flex items-center space-x-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{statusMessage}</span>
+                </div>
+              )}
+
               {/* PDF Canvas Container */}
               <div
                 className="relative shadow-2xl bg-white border border-slate-300 cursor-crosshair"
@@ -919,6 +1266,33 @@ export default function EditPdfTool() {
               >
                 {/* PDF.js Page Render Canvas */}
                 <canvas ref={pageCanvasRef} className="block pointer-events-none" />
+
+                {/* Adobe Pro Feature: Detected Text Hover Blocks */}
+                {showDetectedOverlay && (
+                  <div className="absolute inset-0 pointer-events-auto bg-indigo-50/15">
+                    {detectedTexts.map((dt) => (
+                      <div
+                        key={dt.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelectDetectedText(dt);
+                        }}
+                        style={{
+                          left: `${dt.x * scale}px`,
+                          top: `${dt.y * scale}px`,
+                          width: `${dt.width * scale}px`,
+                          height: `${dt.height * scale}px`,
+                        }}
+                        className="absolute border border-indigo-400/60 bg-indigo-500/10 hover:bg-indigo-500/30 hover:border-indigo-600 cursor-pointer rounded-xs transition-colors flex items-center justify-center group"
+                        title={`Click to edit: "${dt.str}"`}
+                      >
+                        <span className="opacity-0 group-hover:opacity-100 text-[9px] bg-indigo-900 text-white px-1 rounded absolute -top-4 pointer-events-none whitespace-nowrap z-30">
+                          Edit text
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Interactive SVG/DOM Editing Layer Over Canvas */}
                 <div className="absolute inset-0 pointer-events-none">
@@ -987,6 +1361,22 @@ export default function EditPdfTool() {
                               }}
                               className="w-full bg-transparent border-0 outline-none p-0"
                             />
+                          </div>
+                        )}
+
+                        {/* Redaction Blackout Block */}
+                        {item.type === 'redaction' && (
+                          <div
+                            style={{
+                              backgroundColor: '#000000',
+                              width: '100%',
+                              height: '100%',
+                            }}
+                            className="relative flex items-center justify-center overflow-hidden px-1"
+                          >
+                            <span className="text-[10px] font-bold text-white tracking-widest uppercase">
+                              {item.text || '[REDACTED]'}
+                            </span>
                           </div>
                         )}
 
@@ -1100,7 +1490,7 @@ export default function EditPdfTool() {
           <div className="p-3 bg-slate-900 text-slate-300 text-xs flex flex-wrap items-center justify-between gap-3 border-t border-slate-800">
             <div className="flex items-center space-x-2 text-emerald-400 font-medium">
               <Lock className="w-3.5 h-3.5" />
-              <span>Zero-Server Guarantee: All edits rendered directly in local WebAssembly memory</span>
+              <span>Zero-Server Guarantee: Adobe Pro-level editing performed entirely in client memory</span>
             </div>
 
             <div className="flex items-center space-x-3">
@@ -1126,16 +1516,146 @@ export default function EditPdfTool() {
         </div>
       )}
 
+      {/* Watermark Dialog Modal */}
+      {showWatermarkModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h4 className="font-bold text-slate-900 flex items-center space-x-2">
+                <Droplet className="w-5 h-5 text-sky-600" />
+                <span>Document Watermark</span>
+              </h4>
+              <button
+                onClick={() => setShowWatermarkModal(false)}
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Watermark Text:
+                </label>
+                <input
+                  type="text"
+                  value={watermarkInput}
+                  onChange={(e) => setWatermarkInput(e.target.value)}
+                  placeholder="e.g. CONFIDENTIAL"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold focus:outline-sky-500"
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {['CONFIDENTIAL', 'DRAFT', 'DO NOT COPY', 'SAMPLE', 'INTERNAL'].map((preset) => (
+                  <button
+                    key={preset}
+                    onClick={() => setWatermarkInput(preset)}
+                    className="px-2 py-1 bg-slate-100 hover:bg-sky-50 text-slate-700 text-xs font-semibold rounded"
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-2 border-t">
+              <button
+                onClick={() => setShowWatermarkModal(false)}
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleApplyWatermark}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-700 text-white shadow-sm"
+              >
+                Apply Across All Pages
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Page Numbers Dialog Modal */}
+      {showPageNumbersModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h4 className="font-bold text-slate-900 flex items-center space-x-2">
+                <Hash className="w-5 h-5 text-indigo-600" />
+                <span>Bates Numbering / Page Numbers</span>
+              </h4>
+              <button
+                onClick={() => setShowPageNumbersModal(false)}
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Prefix / Format:
+                </label>
+                <input
+                  type="text"
+                  value={pageNumberPrefix}
+                  onChange={(e) => setPageNumberPrefix(e.target.value)}
+                  placeholder="e.g. Page "
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-sky-500"
+                />
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  Preview: &quot;{pageNumberPrefix}1 of {totalPages || 5}&quot;
+                </span>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Position:
+                </label>
+                <select
+                  value={pageNumberPosition}
+                  onChange={(e: any) => setPageNumberPosition(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-sky-500"
+                >
+                  <option value="bottom-center">Bottom Center</option>
+                  <option value="bottom-right">Bottom Right</option>
+                  <option value="top-right">Top Right</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-2 border-t">
+              <button
+                onClick={() => setShowPageNumbersModal(false)}
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleApplyPageNumbers}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
+              >
+                Apply Page Numbers
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Success Notification Alert */}
       {success && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
             <div>
-              <p className="font-bold text-sm">PDF Edited Successfully!</p>
+              <p className="font-bold text-sm">PDF Saved & Downloaded Successfully!</p>
               <p className="text-xs text-emerald-700">
-                Downloaded with all text, font styles, whiteouts, and stamps cleanly embedded.
-                {resultBytes && ` Output size: ${formatBytes(resultBytes)}.`}
+                All Adobe-level in-place text edits, redactions, page modifications, and fonts were permanently saved.
+                {resultBytes && ` Output file size: ${formatBytes(resultBytes)}.`}
               </p>
             </div>
           </div>

@@ -10,7 +10,13 @@ import {
   updatePDFMetadata,
   stripPDFMetadata,
   getPDFPageCount,
-  applyPdfEdits
+  applyPdfEdits,
+  rotatePageInPdf,
+  deletePageInPdf,
+  duplicatePageInPdf,
+  insertBlankPageInPdf,
+  addWatermarkToDocument,
+  addPageNumbersToDocument
 } from '@/lib/pdf-engine';
 
 // Helper to create a dummy test PDF with specified number of pages
@@ -182,5 +188,43 @@ describe('Core PDF Engine (Client-Side pdf-lib Operations)', () => {
 
     const doc = await PDFDocument.load(editedBytes);
     expect(doc.getPageCount()).toBe(2);
+  });
+
+  it('performs Adobe-level in-place page operations (rotate, delete, duplicate, insert blank)', async () => {
+    const testPdf = await createTestPDF(3);
+
+    // Rotate page 1 by 90 degrees
+    const rotated = await rotatePageInPdf(testPdf, 1, 90);
+    const rotDoc = await PDFDocument.load(rotated);
+    expect(rotDoc.getPages()[0].getRotation().angle).toBe(90);
+
+    // Duplicate page 2 (total goes from 3 to 4)
+    const duplicated = await duplicatePageInPdf(testPdf, 2);
+    const dupDoc = await PDFDocument.load(duplicated);
+    expect(dupDoc.getPageCount()).toBe(4);
+
+    // Delete page 2 (total goes from 3 to 2)
+    const deleted = await deletePageInPdf(testPdf, 2);
+    const delDoc = await PDFDocument.load(deleted);
+    expect(delDoc.getPageCount()).toBe(2);
+
+    // Insert blank page after page 1 (total goes from 3 to 4)
+    const blankInserted = await insertBlankPageInPdf(testPdf, 1);
+    const blankDoc = await PDFDocument.load(blankInserted);
+    expect(blankDoc.getPageCount()).toBe(4);
+  });
+
+  it('applies enterprise watermarks and Bates page numbers across all document pages', async () => {
+    const testPdf = await createTestPDF(3);
+
+    // Watermark
+    const watermarked = await addWatermarkToDocument(testPdf, 'CONFIDENTIAL');
+    expect(watermarked).toBeInstanceOf(Uint8Array);
+    expect(watermarked.length).toBeGreaterThan(testPdf.length);
+
+    // Page Numbers
+    const numbered = await addPageNumbersToDocument(testPdf, 'bottom-center', 'Page ');
+    expect(numbered).toBeInstanceOf(Uint8Array);
+    expect(numbered.length).toBeGreaterThan(testPdf.length);
   });
 });

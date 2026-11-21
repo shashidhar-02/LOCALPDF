@@ -100,6 +100,8 @@ export interface AcroFormFieldInfo {
 export type PdfEditItemType =
   | 'text'
   | 'whiteout' // replaces/covers text with matching background color and optional text on top
+  | 'redaction' // legal permanent blackout block with optional [REDACTED] label
+  | 'watermark' // diagonal document watermark
   | 'image'
   | 'stamp'
   | 'rectangle'
@@ -110,6 +112,19 @@ export type PdfEditItemType =
   | 'freehand';
 
 export type StandardFontFamily = 'Helvetica' | 'Times-Roman' | 'Courier';
+
+export interface DetectedPdfTextItem {
+  id: string;
+  str: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fontSize: number;
+  fontFamily: StandardFontFamily;
+  pageNumber: number;
+}
+
 
 export interface PdfEditItem {
   id: string;

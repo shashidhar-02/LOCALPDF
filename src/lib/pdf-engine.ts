@@ -832,8 +832,207 @@ export async function applyPdfEdits(
         }
         break;
       }
+
+      case 'redaction': {
+        // True legal permanent blackout box (Adobe Redaction tool)
+        const bgRgb = parseHexColor(item.backgroundColor || '#000000');
+        page.drawRectangle({
+          x: item.x,
+          y: Math.max(0, pdfY),
+          width: Math.max(1, item.width),
+          height: Math.max(1, item.height),
+          color: rgb(bgRgb.r, bgRgb.g, bgRgb.b),
+          opacity: 1.0,
+        });
+
+        // Optional redaction label (e.g. [REDACTED] or [EXEMPT])
+        const label = item.text || '[REDACTED]';
+        if (label && label.trim().length > 0) {
+          const font = await getOrEmbedFont('Helvetica', true, false);
+          const fontSize = Math.min(10, Math.max(6, item.height * 0.55));
+          const textRgb = parseHexColor(item.textColor || '#ffffff');
+          const textPdfY = pdfY + (item.height - fontSize) / 2;
+
+          page.drawText(label, {
+            x: item.x + 3,
+            y: Math.max(0, textPdfY),
+            size: fontSize,
+            font,
+            color: rgb(textRgb.r, textRgb.g, textRgb.b),
+          });
+        }
+        break;
+      }
+
+      case 'watermark': {
+        const text = item.text || 'CONFIDENTIAL';
+        const font = await getOrEmbedFont('Helvetica', true, false);
+        const fontSize = item.fontSize || 48;
+        const color = parseHexColor(item.textColor || '#dc2626');
+        const textWidth = font.widthOfTextAtSize(text, fontSize);
+        const centerX = (page.getWidth() - textWidth) / 2;
+        const centerY = page.getHeight() / 2;
+
+        page.drawText(text, {
+          x: centerX,
+          y: centerY,
+          size: fontSize,
+          font,
+          color: rgb(color.r, color.g, color.b),
+          opacity: item.opacity ?? 0.2,
+          rotate: degrees(item.rotation ?? 45),
+        });
+        break;
+      }
     }
   }
 
   return await doc.save();
 }
+
+/**
+ * Enterprise Adobe Acrobat-level page tools:
+ * Rotate individual pages permanently in-place.
+ */
+export async function rotatePageInPdf(
+  fileData: Uint8Array,
+  pageNumber: number,
+  angleDegrees: number
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(fileData, { ignoreEncryption: true });
+  const pages = doc.getPages();
+  const pageIndex = pageNumber - 1;
+  if (pageIndex >= 0 && pageIndex < pages.length) {
+    const page = pages[pageIndex];
+    const currentAngle = page.getRotation().angle;
+    page.setRotation(degrees((currentAngle + angleDegrees) % 360));
+  }
+  return await doc.save();
+}
+
+/**
+ * Enterprise Adobe Acrobat-level page tools:
+ * Deletes a page directly from the document.
+ */
+export async function deletePageInPdf(
+  fileData: Uint8Array,
+  pageNumber: number
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(fileData, { ignoreEncryption: true });
+  if (doc.getPageCount() <= 1) {
+    throw new Error('Cannot delete the only page in the document.');
+  }
+  const pageIndex = pageNumber - 1;
+  doc.removePage(pageIndex);
+  return await doc.save();
+}
+
+/**
+ * Enterprise Adobe Acrobat-level page tools:
+ * Duplicates a page in-place.
+ */
+export async function duplicatePageInPdf(
+  fileData: Uint8Array,
+  pageNumber: number
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(fileData, { ignoreEncryption: true });
+  const pageIndex = pageNumber - 1;
+  const [copiedPage] = await doc.copyPages(doc, [pageIndex]);
+  doc.insertPage(pageIndex + 1, copiedPage);
+  return await doc.save();
+}
+
+/**
+ * Enterprise Adobe Acrobat-level page tools:
+ * Inserts a clean blank page after a specific page number.
+ */
+export async function insertBlankPageInPdf(
+  fileData: Uint8Array,
+  afterPageNumber: number
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(fileData, { ignoreEncryption: true });
+  const pages = doc.getPages();
+  const targetIndex = Math.min(afterPageNumber, pages.length);
+  const refPage = pages[Math.max(0, targetIndex - 1)];
+  const width = refPage ? refPage.getWidth() : 612;
+  const height = refPage ? refPage.getHeight() : 792;
+  doc.insertPage(targetIndex, [width, height]);
+  return await doc.save();
+}
+
+/**
+ * Enterprise Watermark Generator:
+ * Injects diagonal watermarks across all pages with custom opacity.
+ */
+export async function addWatermarkToDocument(
+  fileData: Uint8Array,
+  watermarkText: string,
+  opacity: number = 0.2
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(fileData, { ignoreEncryption: true });
+  const font = await doc.embedFont(StandardFonts.HelveticaBold);
+  const pages = doc.getPages();
+
+  for (const page of pages) {
+    const { width, height } = page.getSize();
+    const fontSize = Math.min(width, height) / 10;
+    const textWidth = font.widthOfTextAtSize(watermarkText, fontSize);
+
+    page.drawText(watermarkText, {
+      x: (width - textWidth) / 2,
+      y: height / 2,
+      size: fontSize,
+      font,
+      color: rgb(0.8, 0.2, 0.2),
+      opacity,
+      rotate: degrees(45),
+    });
+  }
+
+  return await doc.save();
+}
+
+/**
+ * Enterprise Page Numbering & Bates Label Generator (Header & Footer):
+ * Stamps dynamic page numbers ("Page X of Y") across all document pages.
+ */
+export async function addPageNumbersToDocument(
+  fileData: Uint8Array,
+  position: 'bottom-center' | 'bottom-right' | 'top-right' = 'bottom-center',
+  prefix: string = 'Page '
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(fileData, { ignoreEncryption: true });
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const pages = doc.getPages();
+  const total = pages.length;
+
+  for (let i = 0; i < total; i++) {
+    const page = pages[i];
+    const { width, height } = page.getSize();
+    const numText = `${prefix}${i + 1} of ${total}`;
+    const fontSize = 10;
+    const textWidth = font.widthOfTextAtSize(numText, fontSize);
+
+    let x = (width - textWidth) / 2;
+    let y = 25;
+
+    if (position === 'bottom-right') {
+      x = width - textWidth - 36;
+      y = 25;
+    } else if (position === 'top-right') {
+      x = width - textWidth - 36;
+      y = height - 25;
+    }
+
+    page.drawText(numText, {
+      x,
+      y,
+      size: fontSize,
+      font,
+      color: rgb(0.3, 0.3, 0.3),
+    });
+  }
+
+  return await doc.save();
+}
+

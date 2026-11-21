@@ -6,6 +6,8 @@
  * `isEvalSupported: false` is explicitly passed to disable PDF JavaScript execution.
  */
 
+import { DetectedPdfTextItem, StandardFontFamily } from './types';
+
 let pdfjsLibInstance: any = null;
 
 export async function getPdfJs() {
@@ -185,4 +187,62 @@ export function setCachedPageRender(
 export function clearRenderCache() {
   renderCache.clear();
 }
+
+/**
+ * Extracts positioned text blocks from a page for Adobe Pro-style
+ * auto-detection and click-to-edit text in place.
+ */
+export async function extractPageTextItems(
+  pdfDoc: any,
+  pageNumber: number
+): Promise<DetectedPdfTextItem[]> {
+  try {
+    const page = await pdfDoc.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1.0 });
+    const textContent = await page.getTextContent({ includeMarkedContent: true });
+    const items: DetectedPdfTextItem[] = [];
+
+    for (let idx = 0; idx < textContent.items.length; idx++) {
+      const it = textContent.items[idx];
+      if (!it.str || it.str.trim().length === 0) continue;
+
+      // Transform matrix: [scaleX, skewY, skewX, scaleY, transX, transY]
+      const transX = it.transform[4];
+      const transY = it.transform[5];
+      const fontSize = Math.round(Math.abs(it.transform[0] || it.transform[3] || 12));
+      const width = Math.round(it.width || it.str.length * fontSize * 0.55);
+      const height = Math.round(it.height || fontSize * 1.25);
+
+      // In PDF coordinates, transY is from bottom of page. Convert to top-left coordinates:
+      const x = Math.round(transX);
+      const y = Math.round(viewport.height - transY - fontSize);
+
+      let fontFamily: StandardFontFamily = 'Helvetica';
+      const fn = (it.fontName || '').toLowerCase();
+      if (fn.includes('time') || fn.includes('serif') || fn.includes('roman')) {
+        fontFamily = 'Times-Roman';
+      } else if (fn.includes('cour') || fn.includes('mono')) {
+        fontFamily = 'Courier';
+      }
+
+      items.push({
+        id: `detected_${pageNumber}_${idx}`,
+        str: it.str,
+        x: Math.max(0, x),
+        y: Math.max(0, y),
+        width: Math.max(12, width),
+        height: Math.max(12, height),
+        fontSize: Math.max(8, fontSize),
+        fontFamily,
+        pageNumber,
+      });
+    }
+
+    return items;
+  } catch (err) {
+    console.warn('Text detection failed for page', pageNumber, err);
+    return [];
+  }
+}
+
 
